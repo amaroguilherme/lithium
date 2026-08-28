@@ -24,7 +24,6 @@ from lithium.types import (
     Directness,
     Grade,
     QuestionKind,
-    SourceKind,
     StuckReason,
 )
 
@@ -40,7 +39,9 @@ class Strict(BaseModel):
 
 
 class SearchQuery(Strict):
-    source: SourceKind
+    source: str = Field(
+        description="Slug da fonte a consultar, exatamente como listado em Available sources."
+    )
     query: str = Field(description="String de busca na sintaxe nativa da fonte.")
     expected_directness: Directness = Field(
         description="Aderência esperada da população que esta busca vai retornar."
@@ -285,7 +286,9 @@ class SpeculationBatch(Strict):
 
 
 class SourceQuery(Strict):
-    source: SourceKind
+    source: str = Field(
+        description="Slug da fonte a consultar, exatamente como listado em Available sources."
+    )
     query: str = Field(description="String de busca na sintaxe nativa da fonte.")
     seeking: str = Field(description="Que elo da cadeia esta busca tentaria ancorar.")
 

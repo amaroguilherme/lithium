@@ -27,9 +27,9 @@ from lithium.pipeline.ingest import Ingestor
 from lithium.pipeline.reflect import Reflector
 from lithium.pipeline.retrieval import Retriever
 from lithium.focus import active_profile, profile_for_slug
-from lithium.pipeline.strategy import all_search_specs, strategy_by_name
+from lithium.pipeline.strategy import DEFAULT_SOURCE, all_search_specs, strategy_by_name
 from lithium.recon import handlers as recon_handlers
-from lithium.sources.base import EVIDENCE_KINDS, SearchSpec, UnsupportedSourceKind
+from lithium.sources.base import SearchSpec, UnsupportedSourceKind
 from lithium.types import Directness
 from lithium.worker.runner import Context
 
@@ -115,9 +115,19 @@ async def harvest_query(payload: dict[str, Any], ctx: Context) -> None:
     )
     priority = payload.get("priority", strategy.priority if strategy else 0.5)
 
-    source = (ctx.sources or {}).get("pubmed")
+    # A FONTE VEM DO PAYLOAD. Era a string `"pubmed"` fixa quatro vezes nesta função (a
+    # busca, o filtro de novidade, o `kind` do payload e a chave de dedup), e o efeito era
+    # que `SourceQuery.source` — campo que o LLM preenche e que atravessa o schema —
+    # morria em dois lugares antes de chegar aqui. Registrar um adapter em
+    # `Context.sources` não mudava fonte nenhuma: era um botão inerte.
+    slug = payload.get("source") or (strategy.sources[0] if strategy
+                                     and strategy.sources else DEFAULT_SOURCE)
+    source = (ctx.sources or {}).get(slug)
     if source is None:
-        raise RuntimeError("fonte 'pubmed' não configurada no contexto")
+        raise RuntimeError(
+            f"fonte {slug!r} não está em Context.sources — ou não foi aprovada no "
+            f"registro (`lithium sources`), ou a credencial não resolve"
+        )
 
     ids = await source.search(
         SearchSpec(
@@ -127,10 +137,14 @@ async def harvest_query(payload: dict[str, Any], ctx: Context) -> None:
         )
     )
 
+    # Novidade dentro da MESMA fonte: o `kind` na cláusula é o que faz o SQLite usar o
+    # índice de `UNIQUE (kind, external_id)` em vez de varrer. Com fontes múltiplas, o
+    # mesmo artigo em duas fontes é legitimamente dois `external_id` — quem colapsa a
+    # duplicata para efeito de CITAÇÃO é `article_key`, não este filtro.
     known = {
         r["external_id"]
         for r in ctx.store.conn.execute(
-            "SELECT external_id FROM sources WHERE kind = 'pubmed'"
+            "SELECT external_id FROM sources WHERE kind = ?", (slug,)
         )
     }
     fresh = [i for i in ids if i not in known]
@@ -139,29 +153,36 @@ async def harvest_query(payload: dict[str, Any], ctx: Context) -> None:
         ctx.queue.enqueue(
             "fetch_source",
             {
-                "kind": "pubmed",
+                "kind": slug,
                 "external_id": external_id,
                 "expected_directness": directness.value,
                 "strategy": label,
                 "focus_id": int(focus["id"]),
             },
             priority=priority,
-            dedup_key=f"fetch:pubmed:{external_id}",
+            dedup_key=f"fetch:{slug}:{external_id}",
         )
-    log.info("[%s] %s: %d resultados, %d novos",
-             label, payload["query"][:55], len(ids), len(fresh))
+    log.info("[%s/%s] %s: %d resultados, %d novos",
+             label, slug, payload["query"][:55], len(ids), len(fresh))
 
 
 async def fetch_source(payload: dict[str, Any], ctx: Context) -> None:
     """Baixa um registro, fatia em chunks e indexa. Depois pede a extração."""
     kind = payload["kind"]
-    if kind not in {k.value for k in EVIDENCE_KINDS}:
-        # Portão de TIPO, no lugar que ingere. Ver `EVIDENCE_KINDS`: uma bula ou um
-        # registro de ensaio não é desenho de estudo, e a prosa de um registro passa o
-        # portão de citação literal porque a citação É literal — ela só não é resultado.
+    if not ctx.store.source_yields_evidence(kind):
+        # Portão de TIPO, no lugar que ingere — e agora ele CONSULTA o registro em vez de
+        # comparar contra uma frozenset compilada. A pergunta não mudou ("isto pode virar
+        # claim?"); mudou quem responde. Uma bula não é desenho de estudo, e a prosa de um
+        # registro de ensaio passa o portão de citação literal porque a citação É literal
+        # — ela só não é resultado. `yields_evidence` é onde esse contrato mora agora.
+        #
+        # Fail-closed cobre três estados com a mesma resposta: fonte desconhecida, fonte
+        # conhecida e não aprovada, e fonte aprovada que não produz evidência.
+        permitidas = [r["slug"] for r in ctx.store.active_sources()
+                      if r["yields_evidence"]]
         raise UnsupportedSourceKind(
-            f"'{kind}' não é fonte de evidência de estudo; "
-            f"permitidos: {sorted(k.value for k in EVIDENCE_KINDS)}"
+            f"{kind!r} não produz evidência de estudo neste banco; "
+            f"fontes de evidência aprovadas: {permitidas or '(nenhuma)'}"
         )
     _guard_focus(payload, _focus_id(ctx.store), "fetch_source")
     source = (ctx.sources or {}).get(kind)
@@ -279,6 +300,13 @@ async def pursue_speculation(payload: dict[str, Any], ctx: Context) -> None:
                 "harvest_query",
                 {
                     "query": q.query,
+                    # A FONTE QUE O MODELO ESCOLHEU. Ela atravessava o schema
+                    # (`SourceQuery.source`), sobrevivia ao filtro de `plan_queries`, e
+                    # morria AQUI: o payload era montado sem ela e `harvest_query` fixava
+                    # `'pubmed'`. Duas mortes silenciosas em sequência, e o efeito é que
+                    # "o modelo escolhe onde buscar" era verdade como estrutura de dados e
+                    # falso como comportamento.
+                    "source": q.source,
                     # Especulação parte de mecanismo, não de população: o prior
                     # honesto é `extrapolated`, e a extração corrige lendo o texto.
                     "expected_directness": Directness.EXTRAPOLATED.value,
@@ -295,7 +323,9 @@ async def pursue_speculation(payload: dict[str, Any], ctx: Context) -> None:
                 # Escopado por foco. `hypothesis_id` só escopa transitivamente
                 # enquanto a hipótese não puder ser sustentada por dois focos — e a
                 # Fase B revoga essa premissa.
-                dedup_key=f"specq:{_focus_id(ctx.store)}:{hypothesis_id}:"
+                # A fonte entra na chave: a MESMA query em duas fontes são duas buscas
+                # legítimas, e sem isto a segunda seria engolida em silêncio pelo UNIQUE.
+                dedup_key=f"specq:{_focus_id(ctx.store)}:{hypothesis_id}:{q.source}:"
                           f"{_stable_key(q.query)}",
                 origin=payload.get("origin", "on_demand"),
             )

@@ -20,7 +20,7 @@ from lithium.db import Store
 from lithium.llm import EmbeddingClient, LLMClient
 from lithium.llm.server import LlamaServer
 from lithium.llm.usage import UsageSink
-from lithium.sources.pubmed import PubMedSource
+from lithium.sources.factory import build_sources
 from lithium.worker.handlers import HANDLERS
 from lithium.worker.queue import TaskQueue
 from lithium.worker.runner import Context, ReconBundle, Runner
@@ -116,11 +116,11 @@ class Daemon:
                 max_attempts=cfg.worker.max_attempts,
                 backoff_base_s=cfg.worker.backoff_base_s,
             )
-            pubmed = PubMedSource(
-                api_key=cfg.sources.pubmed.api_key,
-                rate_per_s=cfg.sources.pubmed.rate_per_s,
-            )
-            stack.push_async_callback(pubmed.aclose)
+            # AS FONTES VÊM DO REGISTRO. Era um `PubMedSource` construído à mão e um
+            # dict literal — o que fazia da aprovação no registro uma decoração, porque a
+            # escolha real morava aqui. `build_sources` instancia uma fonte por linha
+            # aprovada e deixa de fora aquelas cuja credencial não resolve.
+            sources = build_sources(store, cfg, stack)
 
             # O batedor da web, só quando a chave está lá. Em CAMPO PRÓPRIO do
             # Context — nunca em `sources`, que é indexado por `kind` e é lido por
@@ -129,7 +129,7 @@ class Daemon:
 
             context = Context(
                 config=cfg, store=store, queue=queue,
-                llm=llm, embedder=embedder, sources={"pubmed": pubmed},
+                llm=llm, embedder=embedder, sources=sources,
                 recon=recon,
             )
             runner = Runner(

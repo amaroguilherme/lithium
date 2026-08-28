@@ -44,14 +44,21 @@ from lithium.llm.schemas import (
 )
 from lithium.pipeline.mechanism import route_block, taxonomy_block
 from lithium.pipeline.state import KnowledgeState, build_state
-from lithium.types import SourceKind
 from lithium.worker.queue import iso, utcnow
 
 log = logging.getLogger(__name__)
 
-AVAILABLE_SOURCES: frozenset[SourceKind] = frozenset({SourceKind.PUBMED})
-"""Fontes com adapter implementado. Query para fonte inexistente vira tarefa morta,
-então filtramos aqui. Cresce com o item 9 (ClinicalTrials.gov, openFDA, Europe PMC)."""
+# `AVAILABLE_SOURCES` foi REMOVIDO na Fase D: era `frozenset({SourceKind.PUBMED})`, uma
+# constante que crescia por edição de código. A lista agora vem de `sources_registry`, e o
+# filtro continua no mesmo lugar e pela mesma razão — query para fonte inexistente viraria
+# tarefa morta na fila.
+
+def _sources_block(rows) -> str:
+    """As fontes aprovadas, uma por linha, com o que cada uma cobre."""
+    if not rows:
+        return "(nenhuma fonte de evidência aprovada — nenhuma busca será enfileirada)"
+    return "\n".join(f"- `{r['slug']}` — {r['description']}" for r in rows)
+
 
 @dataclass(slots=True)
 class SpeculationRecord:
@@ -417,6 +424,11 @@ class Explorer:
         if row is None:
             raise ValueError(f"especulação {hypothesis_id} não existe")
 
+        # As fontes que o modelo pode escolher, com DESCRIÇÃO. Antes o prompt recebia só
+        # os valores crus do enum (`"pubmed"`), sem uma linha sobre o que cada fonte
+        # cobre — um modelo obrigado a escolher entre nomes que não sabe o que significam
+        # escolhe o primeiro.
+        approved = [r for r in self.store.active_sources() if r["yields_evidence"]]
         plan = await self.llm.structured(
             [
                 {
@@ -430,7 +442,7 @@ class Explorer:
                         combination=row["combination"] or "(single agent)",
                         chain=_render_chain(json.loads(row["chain_json"] or "[]")),
                         test_proposal=row["test_proposal"] or "—",
-                        sources=", ".join(s.value for s in AVAILABLE_SOURCES),
+                        sources=_sources_block(approved),
                     ),
                 }
             ],
@@ -438,8 +450,17 @@ class Explorer:
             max_tokens=1536,
             label="speculation_queries",
         )
-        # Fontes ainda não implementadas viriam a virar tarefa morta na fila.
-        return [q for q in plan.queries if q.source in AVAILABLE_SOURCES]
+        # Fonte que não está aprovada viraria tarefa morta na fila. O filtro é o mesmo de
+        # antes; o que mudou é que o conjunto vem do banco em vez de uma constante — e que
+        # `q.source` deixou de ser DESCARTADO depois daqui (ver `pursue_speculation`).
+        valid = {r["slug"] for r in approved}
+        kept, dropped = [], []
+        for q in plan.queries:
+            (kept if q.source in valid else dropped).append(q)
+        if dropped:
+            log.info("descartadas %d query(ies) para fonte não aprovada: %s",
+                     len(dropped), sorted({q.source for q in dropped}))
+        return kept
 
     def mark_pursued(self, hypothesis_id: int) -> None:
         self.store.conn.execute(

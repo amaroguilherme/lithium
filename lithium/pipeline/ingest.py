@@ -109,7 +109,7 @@ class Ingestor:
         Idempotente: reprocessar o mesmo registro reaproveita os ids e não duplica.
         """
         source_id = self.store.upsert_source(
-            kind=record.kind.value,
+            kind=record.kind,
             external_id=record.external_id,
             raw=record.raw,
             title=record.title,
