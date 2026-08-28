@@ -140,11 +140,71 @@ SELECT f.id, f.slug, f.target, f.scale_id, f.profile_hash, f.judgment_hash
    AND f.retired_at IS NULL;
 
 
+-- ─────────────────────────────────────────────────────────────── registro de fontes
+
+-- Que fontes existem, e qual delas pode produzir EVIDÊNCIA.
+--
+-- Antes disto a lista era `EVIDENCE_KINDS = {PUBMED}` em Python mais um `CHECK (kind IN
+-- (...))` com quatro literais no schema. Duas consequências, e as duas doem: uma quinta
+-- fonte não conseguia nem ser NOMEADA (o CHECK rejeitava o INSERT), e a decisão "isto
+-- vale como evidência" era uma allowlist de API em vez do contrato que ela deveria
+-- expressar. As medições do item 9 continuam válidas para AQUELAS fontes naquele foco;
+-- elas não justificam uma lista fixa e permanente.
+--
+-- `yields_evidence = 1` significa: publica estudo com prosa citável verbatim e desenho
+-- graduável na escala do foco. Uma página web é 0 — e é por isso que o portão passa a
+-- ser uma COLUNA consultada em runtime, não um conjunto compilado.
+--
+-- `credential_ref` guarda o NOME de uma variável de ambiente ou de uma chave em
+-- `config.local.toml`, NUNCA o segredo. O movimento óbvio é uma coluna com a chave
+-- dentro; `config.local.toml` está no `.gitignore` e uma coluna do banco não está
+-- protegida por nada — e é o banco que o item 8 sincroniza para o Hugging Face.
+CREATE TABLE IF NOT EXISTS sources_registry (
+    id                     INTEGER PRIMARY KEY,
+    slug                   TEXT NOT NULL UNIQUE,
+    description            TEXT NOT NULL,
+    base_url               TEXT NOT NULL,
+    -- Como buscar e como buscar o registro completo. JSON e não colunas porque a forma
+    -- varia por API (E-utilities usa `db=`+`term=`, OpenAlex usa `filter=`), e uma
+    -- coluna por parâmetro viraria dezenas de NULLs.
+    search_spec_json       TEXT,
+    fetch_spec_json        TEXT,
+    yields_evidence        INTEGER NOT NULL DEFAULT 0
+                           CHECK (yields_evidence IN (0, 1)),
+    credential_ref         TEXT,
+    rate_per_s             REAL NOT NULL DEFAULT 1.0 CHECK (rate_per_s > 0),
+    -- NULL = proposta pendente. O batedor da web (Fase C) propõe; você aprova. Uma
+    -- fonte não aprovada não é montada em `Context.sources` e portanto não é consultada.
+    approved_at            TEXT,
+    -- De qual descoberta esta fonte nasceu, quando nasceu de uma. Sem FK de propósito:
+    -- `discoveries` expira em 14 dias e a fonte aprovada tem de sobreviver à expiração.
+    proposed_by_discovery   INTEGER,
+    -- Parser dedicado, quando o genérico não serve. `pubmed` tem um porque o XML das
+    -- E-utilities é irregular demais para spec declarativa; fonte nova usa o genérico.
+    adapter                TEXT NOT NULL DEFAULT 'http'
+                           CHECK (adapter IN ('http', 'pubmed'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_registry_active
+    ON sources_registry(approved_at, yields_evidence);
+
+-- As fontes utilizáveis AGORA: aprovadas. É o que o daemon monta e o que o portão lê.
+DROP VIEW IF EXISTS active_sources;
+CREATE VIEW active_sources AS
+SELECT slug, description, base_url, search_spec_json, fetch_spec_json,
+       yields_evidence, credential_ref, rate_per_s, adapter
+  FROM sources_registry
+ WHERE approved_at IS NOT NULL;
+
+
 -- ─────────────────────────────────────────────────────────────────────── fontes
 
 CREATE TABLE IF NOT EXISTS sources (
     id              INTEGER PRIMARY KEY,
-    kind            TEXT NOT NULL CHECK (kind IN ('pubmed', 'epmc', 'ctgov', 'fda')),
+    -- FK para o registro, NÃO um CHECK de literais. O CHECK antigo tinha quatro valores
+    -- fixos e impedia que uma fonte nova fosse sequer nomeada; a FK diz a mesma coisa que
+    -- ele queria dizer ("kind é uma fonte conhecida") sem congelar QUAIS são.
+    kind            TEXT NOT NULL REFERENCES sources_registry(slug),
     external_id     TEXT NOT NULL,          -- PMID / PMCID / NCT / SPL set id
     title           TEXT,
     year            INTEGER,
@@ -169,8 +229,26 @@ CREATE TABLE IF NOT EXISTS sources (
     -- viraria refetch do corpus inteiro a 3 req/s.
     raw_json        TEXT NOT NULL,          -- metadados de indexação da API (NÃO o texto)
     fetched_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    -- Identidade de ARTIGO, não de linha. Com uma fonte só, `(kind, external_id)`
+    -- bastava; com duas, o MESMO paper entra como duas linhas e chega ao juiz de
+    -- suficiência como DUAS FONTES INDEPENDENTES CONCORDANDO — satisfazendo o piso de
+    -- citações com um artigo só. Medido no item 9: 100% dos PMIDs que o PubMed colhe
+    -- neste domínio também estão no Europe PMC.
+    --
+    -- GENERATED e não coluna comum: derivada não pode divergir da origem, e o SQLite
+    -- recusa `ADD COLUMN ... GENERATED STORED`, então ela só existe em tabela criada do
+    -- zero — que é exatamente o caminho do rebuild.
+    article_key     TEXT NOT NULL GENERATED ALWAYS AS (
+                        COALESCE(NULLIF(TRIM(LOWER(doi)), ''), kind || ':' || external_id)
+                    ) VIRTUAL,
     UNIQUE (kind, external_id)
 );
+
+-- O índice de `article_key` NÃO mora aqui: `CREATE INDEX` VALIDA a coluna (ao
+-- contrário de `CREATE VIEW`, que aceita coluna inexistente e só falha no uso), e num
+-- banco legado POPULADO o rebuild de `sources` é adiado — a coluna não existe, o
+-- índice levanta, e como `executescript` é atômico-por-script tudo que vem depois
+-- deixa de ser aplicado, calado. Criado em `Store._migrate_source_index`, guardado.
 
 CREATE INDEX IF NOT EXISTS idx_sources_design ON sources(design);
 CREATE INDEX IF NOT EXISTS idx_sources_year   ON sources(year);

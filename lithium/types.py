@@ -85,11 +85,19 @@ class StuckReason(StrEnum):
     INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
 
 
-class SourceKind(StrEnum):
-    PUBMED = "pubmed"
-    EPMC = "epmc"
-    CTGOV = "ctgov"
-    FDA = "fda"
+# `SourceKind` foi REMOVIDO na Fase D. O vocabulário de fontes vive em
+# `sources_registry`, e quem o aplica é a FK de `sources.kind` — na escrita, onde um
+# slug inválido levanta em vez de virar uma linha calada.
+#
+# Ele era um `StrEnum` de quatro valores espelhado num `CHECK (kind IN (...))`. Duas
+# consequências: uma quinta fonte não conseguia ser NOMEADA, e três dos quatro valores
+# (`epmc`, `ctgov`, `fda`) nunca tiveram adapter — um enum onde 3 de 4 membros não
+# correspondem a nada é o mesmo "botão de configuração que não configura" que este repo
+# recusa em `Strategy.tags`.
+#
+# Onde a decodificação restrita precisa de conjunto fechado (`SourceQuery.source`), ele é
+# construído em RUNTIME a partir das fontes aprovadas — o mesmo padrão que a Fase B usou
+# para os níveis de grade e directness.
 
 
 # ─────────────────────────────────────────────────────────────── pesos de evidência

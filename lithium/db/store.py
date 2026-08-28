@@ -255,14 +255,27 @@ class Store:
         #      DEPOIS de `_migrate_columns` (que garante `focus_id` mesmo se o rebuild
         #      for adiado) e ANTES do executescript (que recria as views).
         self._rebuild_memories_for_recon(conn)
+        # 1.6. Fase D. `sources.kind` era `CHECK (kind IN (4 literais))` e passa a ser FK
+        #      para `sources_registry(slug)`. `CREATE TABLE IF NOT EXISTS` não altera
+        #      tabela existente, então num banco legado o CHECK sobreviveria e uma fonte
+        #      nova continuaria impossível de NOMEAR — o escopo por registro seria
+        #      verdadeiro só em banco de teste. Mesmo tratamento de `hypotheses` na Fase A:
+        #      rebuild se VAZIA, limitação registrada se populada.
+        self._rebuild_empty_legacy_sources(conn)
         # 2. Cria tabelas novas e RECRIA todas as views. A ordem de declaração dentro do
         #    arquivo não importa para a criação (MEDIDO: `CREATE VIEW v AS SELECT * FROM
         #    nao_existe` SUCEDE e só falha no SELECT). O que importa é que `meta` está no
         #    topo do arquivo — ver a nota lá.
         conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        # 3. Depois do executescript porque lê o id da escala de volta: é exatamente por
-        #    isso que a semeadura não pode morar no schema.sql. Antes do passo 4 porque
-        #    `focuses.scale_id` é FK.
+        # 3. O REGISTRO DE FONTES, antes de qualquer coisa que insira em `sources`:
+        #    `sources.kind` é FK para ele, e a FK é verificada na ESCRITA (medido: o
+        #    `CREATE TABLE` com REFERENCES para tabela inexistente passa; o INSERT é que
+        #    levanta). Também antes do portão de `fetch_source`, que agora lê a coluna
+        #    `yields_evidence` em vez de uma frozenset compilada.
+        self._seed_registry(conn)
+        # 4. Depois do executescript porque lê o id da escala de volta: é exatamente
+        #    por isso que a semeadura não pode morar no schema.sql. Antes do passo
+        #    seguinte porque `focuses.scale_id` é FK.
         scale_id = self._seed_scale(conn)
         # 4. O foco #1 e `meta['active_focus']`.
         self._seed_focus(conn, scale_id)
@@ -270,6 +283,7 @@ class Store:
         # 5. Depois do executescript: depende de `text_key` existir (banco novo) e de
         # `_migrate_columns` já ter rodado (banco antigo). E fora dele: um índice único
         # não pode viver dentro de um script atômico. Ver `_migrate_indexes`.
+        self._migrate_source_index(conn)
         self._migrate_indexes(conn)
         # 6. O VOCABULÁRIO. Antes do passo 7 porque `claim_directness.directness` é FK
         #    para `directness_weight`.
@@ -459,6 +473,23 @@ class Store:
                 ", ".join(f"#{i}" for i in blocked),
             )
 
+    def _migrate_source_index(self, conn: sqlite3.Connection) -> None:
+        """Cria o índice de `article_key` só quando a coluna existe.
+
+        Fora do `executescript` pela mesma razão de `_migrate_indexes`, mas por um motivo
+        diferente e medido: `CREATE INDEX` **valida a coluna**, enquanto `CREATE VIEW`
+        aceita coluna inexistente e só falha no uso. Num banco legado com `sources`
+        populada o rebuild é adiado de propósito, a coluna não nasce, e o índice dentro do
+        script levantaria `no such column: article_key` — derrubando `lithium status` e
+        `lithium sources`, que são as ferramentas para diagnosticar justamente isso.
+        """
+        cols = {r["name"] for r in conn.execute("PRAGMA table_xinfo(sources)")}
+        if "article_key" not in cols:
+            return
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sources_article ON sources(article_key)"
+        )
+
     def _migrate_indexes(self, conn: sqlite3.Connection) -> int:
         """Cria o índice de deduplicação de lições — se e somente se for seguro.
 
@@ -570,6 +601,158 @@ class Store:
             log.info("%d lição(ões) repetida(s) desativada(s)", len(ids))
             self._migrate_indexes(self.conn)
         return ids
+
+    def _rebuild_empty_legacy_sources(self, conn: sqlite3.Connection) -> None:
+        """Dropa `sources` quando ela está na forma legada E vazia.
+
+        A forma legada é `CHECK (kind IN ('pubmed', 'epmc', 'ctgov', 'fda'))`, e ela é o
+        que impede uma fonte nova de ser NOMEADA: o INSERT é rejeitado antes de qualquer
+        portão de política. `CREATE TABLE IF NOT EXISTS` não altera tabela existente, então
+        sem este rebuild o registro de fontes funcionaria só em banco criado do zero — o
+        modo de falha "verde na suíte, quebrado no banco do usuário".
+
+        Mesmo tratamento e mesma razão de `_rebuild_empty_legacy_hypotheses`: dropar e
+        deixar o `executescript` recriar. `chunks` e `claims` têm FK com ON DELETE CASCADE
+        para `sources`, então uma `sources` vazia implica as duas vazias — o DROP não pode
+        perder linha que exista. Com linhas, a limitação é REGISTRADA em vez de a operação
+        mais perigosa da migração ser escrita para um banco que nunca colheu.
+
+        `article_key` é GENERATED, e o SQLite recusa `ADD COLUMN ... GENERATED STORED`:
+        ela só nasce em tabela criada do zero, o que faz deste rebuild o único caminho.
+        """
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sources'"
+        ).fetchone()
+        if row is None:
+            return  # banco novo: o CREATE TABLE já traz a FK e o article_key
+        if "sources_registry" in (row["sql"] or ""):
+            return  # já está na forma nova
+        n = conn.execute("SELECT COUNT(*) AS n FROM sources").fetchone()["n"]
+        if n:
+            already = conn.execute(
+                "SELECT 1 FROM meta WHERE key = 'sources_kind_check'"
+            ).fetchone()
+            conn.execute(
+                "INSERT INTO meta(key, value) VALUES('sources_kind_check', 'legacy') "
+                "ON CONFLICT(key) DO NOTHING"
+            )
+            if already is not None:
+                return  # avisa UMA vez, não em toda abertura de CLI
+            log.warning(
+                "`sources` está na forma legada com %d linha(s): o CHECK de quatro "
+                "literais sobrevive, então fonte fora de "
+                "('pubmed','epmc','ctgov','fda') será rejeitada no INSERT, e "
+                "`article_key` não existe (duas linhas do mesmo DOI contam como duas "
+                "citações). Registro de fontes funciona; fonte NOVA, não.", n,
+            )
+            return
+        log.info("reconstruindo `sources` legada e vazia: CHECK de kind -> FK do registro")
+        conn.execute("DROP TABLE sources")
+
+    # As fontes que o sistema conhece de fábrica. Uma linha, não uma constante Python:
+    # é a diferença entre "estas são as fontes" e "estas são as fontes que já vêm
+    # cadastradas". Fonte nova entra por `lithium sources --approve`, sem tocar em código.
+    BUILTIN_SOURCES: tuple[dict[str, Any], ...] = (
+        {
+            "slug": "pubmed",
+            "description": "MEDLINE/PubMed via E-utilities do NCBI",
+            "base_url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
+            "yields_evidence": 1,
+            "credential_ref": "sources.pubmed.api_key",
+            "rate_per_s": 3.0,
+            "adapter": "pubmed",
+            "approved": True,
+        },
+    )
+    """Só o PubMed vem aprovado, e é uma decisão medida, não conservadorismo.
+
+    O item 9 mediu as outras três candidatas e RECUSOU as três: o Europe PMC não
+    acrescenta um único artigo revisado que o PubMed já não traga (0 de 813); 75% dos
+    registros do ClinicalTrials.gov não têm resultado e a prosa de registro passa o portão
+    de citação literal porque a citação É literal — só o portão de TIPO distingue intenção
+    de resultado; e uma bula não é desenho de estudo, então a escala de `grade` não tem
+    lugar para ela.
+
+    Essas medições valem para AQUELAS fontes naquele foco. O que elas não justificam é uma
+    lista fixa e permanente — que era exatamente o que `EVIDENCE_KINDS` tinha virado.
+    """
+
+    def _seed_registry(self, conn: sqlite3.Connection) -> None:
+        """Semeia as fontes de fábrica. Insert-if-absent, NUNCA update.
+
+        Mesma razão de `_seed_weights` e `_seed_scale`: `init_schema()` roda em TODA
+        invocação de CLI, então um `DO UPDATE` aqui desfaria em silêncio, a cada comando,
+        qualquer coisa que o usuário tenha mudado — inclusive REVOGAR uma aprovação. Uma
+        fonte que o usuário desaprovou voltaria a ser consultada no comando seguinte.
+        """
+        for src in self.BUILTIN_SOURCES:
+            conn.execute(
+                "INSERT INTO sources_registry"
+                "  (slug, description, base_url, yields_evidence, credential_ref,"
+                "   rate_per_s, adapter, approved_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, "
+                "       CASE WHEN ? THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') END) "
+                "ON CONFLICT(slug) DO NOTHING",
+                (src["slug"], src["description"], src["base_url"],
+                 src["yields_evidence"], src.get("credential_ref"),
+                 src["rate_per_s"], src["adapter"], bool(src.get("approved"))),
+            )
+
+    def propose_source(self, slug: str, description: str, base_url: str,
+                       discovery_id: int | None = None) -> bool:
+        """Registra uma fonte como PROPOSTA: não aprovada, sem produzir evidência.
+
+        Mora aqui, e não em `lithium/recon/`, pela mesma razão que a ponte `recon_lead`
+        mora em `worker/handlers.py`: a varredura de AST do pacote do batedor proíbe o nome
+        `sources` justamente para que o código capaz de atravessar a fronteira não tenha
+        onde ser escrito. Fazer o batedor falar SQL de `sources_registry` obrigaria a
+        afrouxar a trava que protege o pacote inteiro — o portão pegou essa tentativa.
+
+        `approved_at` NULL e `yields_evidence = 0` fazem a linha ficar fora de
+        `active_sources`, logo fora do daemon e fora do portão de `fetch_source`. Aprovar
+        a descoberta significa "vale investigar"; ativar a fonte é outra decisão.
+
+        Devolve False quando o slug já existe — duas descobertas apontando para o mesmo
+        domínio é o caso comum, não o excepcional.
+        """
+        exists = self.conn.execute(
+            "SELECT 1 FROM sources_registry WHERE slug = ?", (slug,)
+        ).fetchone()
+        if exists is not None:
+            return False
+        self.conn.execute(
+            "INSERT INTO sources_registry"
+            "  (slug, description, base_url, yields_evidence, proposed_by_discovery) "
+            "VALUES(?, ?, ?, 0, ?)",
+            (slug, description, base_url, discovery_id),
+        )
+        return True
+
+    def source_state(self, slug: str) -> str | None:
+        """`None` (desconhecida), `'proposta'` ou `'ativa'`."""
+        row = self.conn.execute(
+            "SELECT approved_at FROM sources_registry WHERE slug = ?", (slug,)
+        ).fetchone()
+        if row is None:
+            return None
+        return "ativa" if row["approved_at"] else "proposta"
+
+    def active_sources(self) -> list[sqlite3.Row]:
+        """As fontes aprovadas. É o que o daemon monta em `Context.sources`."""
+        return list(self.conn.execute("SELECT * FROM active_sources ORDER BY slug"))
+
+    def source_yields_evidence(self, slug: str) -> bool:
+        """O PORTÃO, e ele é uma consulta em runtime em vez de um conjunto compilado.
+
+        Substitui `EVIDENCE_KINDS`. A pergunta que ele responde não mudou — "isto pode
+        virar claim?" — mas ela deixa de ser respondida por uma allowlist de duas APIs e
+        passa a ser respondida pelo contrato: publica estudo com prosa citável verbatim e
+        desenho graduável. Fail-closed em fonte desconhecida ou não aprovada.
+        """
+        row = self.conn.execute(
+            "SELECT yields_evidence FROM active_sources WHERE slug = ?", (slug,)
+        ).fetchone()
+        return bool(row and row["yields_evidence"])
 
     def _seed_weights(self, conn: sqlite3.Connection) -> None:
         """O VOCABULÁRIO: o conjunto fechado de níveis legais, aplicado por FK.
