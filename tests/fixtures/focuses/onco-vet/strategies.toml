@@ -1,0 +1,21 @@
+schema_version = 1
+
+[[strategies]]
+name = "linfoma_canino_direto"
+expected_directness = "direct"
+priority = 0.95
+limit = 12
+rationale = "A interseção real: linfoma multicêntrico canino com comprometimento renal."
+queries = [
+  '"canine lymphoma" AND "renal insufficiency" AND chemotherapy',
+  '"multicentric lymphoma" AND dog AND azotemia',
+]
+
+[[strategies]]
+name = "protocolo_humano_analogo"
+expected_directness = "indirect"
+priority = 0.6
+rationale = "Protocolos de linfoma humano que já resolveram o mesmo compromisso de dose."
+queries = [
+  '"non-Hodgkin lymphoma" AND "renal impairment" AND "dose adjustment"',
+]

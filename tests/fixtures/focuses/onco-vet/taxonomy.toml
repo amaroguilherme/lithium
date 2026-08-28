@@ -1,0 +1,43 @@
+schema_version = 1
+
+# A ordem é conteúdo: as duas últimas são as mais distantes da prática
+# padrão e ficam no fim de propósito.
+mechanism_targets = [
+  "alkylating DNA damage",
+  "topoisomerase II inhibition",
+  "microtubule destabilisation",
+  "glucocorticoid receptor signalling",
+  "CD20 / B-cell surface antigen",
+  "oncolytic virotherapy",
+  "tumour microenvironment / hypoxia",
+]
+
+routes = [
+  "intravenous bolus",
+  "metronomic oral",
+  "subcutaneous",
+  "intracavitary",
+  "radiotherapy field",
+]
+
+[[intervention_classes]]
+label = "multi-agent alkylator protocol"
+keywords = ["chop", "cyclophosphamide", "lomustine", "chlorambucil"]
+[[intervention_classes]]
+label = "anthracycline"
+keywords = ["doxorubicin", "epirubicin"]
+[[intervention_classes]]
+label = "monoclonal antibody"
+keywords = ["rituximab", "monoclonal", "anti-cd20"]
+[[intervention_classes]]
+label = "corticosteroid alone"
+keywords = ["prednisone", "prednisolone", "dexamethasone"]
+[[intervention_classes]]
+label = "metronomic maintenance"
+keywords = ["metronomic", "low-dose continuous"]
+[[intervention_classes]]
+label = "radiotherapy"
+keywords = ["radiotherapy", "irradiation", "half-body"]
+[[intervention_classes]]
+label = "oncolytic virotherapy"
+keywords = ["oncolytic", "virotherapy"]

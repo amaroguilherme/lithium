@@ -1,0 +1,46 @@
+{
+  "_PROVENANCE": "SINTÉTICA, não gravada de uma resposta real. O implementador não tem chave da Brave Search API (a conta exige cartão), e a disciplina do repo é explícita: 'testar contra XML inventado esconde exatamente os casos que quebram na prática'. A FORMA aqui segue a documentação pública da API (web.results[], com title/url/description/extra_snippets). Enquanto esta fixture for sintética, os testes que afirmam sobre o PARSING estão marcados @pytest.mark.provisional. Substitua-a rodando `lithium recon --record-fixture` uma vez com a chave configurada: o comando grava a PRIMEIRA resposta real aqui, sem nenhum header.",
+  "type": "search",
+  "query": {
+    "original": "bipolar maintenance lithium 2025 guideline"
+  },
+  "web": {
+    "type": "search",
+    "results": [
+      {
+        "title": "Bipolar disorder: assessment and management | Guidance | NICE",
+        "url": "https://www.nice.org.uk/guidance/cg185",
+        "description": "This guideline covers recognising, assessing and treating bipolar disorder in children, young people and adults.",
+        "extra_snippets": [
+          "Lithium remains a first-line long-term option."
+        ]
+      },
+      {
+        "title": "Lithium in the maintenance treatment of bipolar disorder - PubMed",
+        "url": "https://pubmed.ncbi.nlm.nih.gov/30712879/",
+        "description": "A meta-analysis of maintenance trials. PMID: 30712879.",
+        "extra_snippets": []
+      },
+      {
+        "title": "Efficacy of quetiapine in bipolar depression",
+        "url": "https://www.sciencedirect.com/science/article/pii/S0165032719301?via%3Dihub",
+        "description": "J Affect Disord. doi:10.1016/j.jad.2019.01.001 — randomised controlled trial in bipolar II.",
+        "extra_snippets": [
+          "https://doi.org/10.1016/j.jad.2019.01.001"
+        ]
+      },
+      {
+        "title": "ClinicalTrials.gov — search bipolar maintenance",
+        "url": "https://clinicaltrials.gov/search?cond=Bipolar%20Disorder",
+        "description": "Registry of publicly and privately supported clinical studies, searchable by condition and intervention.",
+        "extra_snippets": []
+      },
+      {
+        "title": "Buy mood support supplements — 30% off today",
+        "url": "https://example-shop.invalid/mood-support",
+        "description": "Natural mood support, free shipping.",
+        "extra_snippets": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+User-agent: *
+Crawl-delay: 1
+Allow: /$
+Allow: /about/
+Allow: /articles/
+Allow: /sitemap/
+Allow: /tools/
+Allow: /pub/
+Allow: /api/
+Allow: /tagging-guidelines/
+Disallow: /
+
+Sitemap: https://pmc.ncbi.nlm.nih.gov/sitemap/
+

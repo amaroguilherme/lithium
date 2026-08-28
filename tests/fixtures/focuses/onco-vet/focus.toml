@@ -1,0 +1,83 @@
+########################################################################
+# PERFIL DE TESTE — oncologia veterinária.
+#
+# Domínio deliberadamente distinto do de produção. Existe porque a
+# alternativa é a suíte afirmar sobre conteúdo lendo o perfil de
+# PRODUÇÃO — e uma expectativa derivada da mesma fonte que ela policia é
+# o defeito tautológico que este repo já cometeu várias vezes.
+#
+# Nenhuma string daqui pode aparecer no perfil de produção, e vice-versa:
+# é isso que faz `test_the_lesson_query_carries_the_prefix_of_the_active_profile`
+# e as travas de taxonomia valerem alguma coisa.
+########################################################################
+
+schema_version = 1
+slug   = "onco-vet"
+target = "canine multicentric lymphoma"
+
+target_prose = "treatment options for canine multicentric lymphoma with renal comorbidity"
+reader = "veterinary oncologist"
+scale  = "vet-onco-evidence"
+
+retrieval_prefix = "canine multicentric lymphoma with renal impairment"
+
+extract_bind = """
+The clinical bind: standard induction is a multi-agent alkylator protocol, but rapid
+cytoreduction in a renally impaired dog risks tumour lysis syndrome. Direct evidence is
+scarce, so adjacent species and adjacent tumour types have to carry weight."""
+
+question_bind = """
+The bind: dose intensity drives remission depth, but it also drives tumour lysis
+syndrome. The useful question is never "does X induce remission" — it is "does X induce
+remission *without* a lysis burden the kidney cannot clear"."""
+
+question_scarcity = """
+Veterinary oncology trials are small, single-centre and rarely randomised. The system
+has to reason from human lymphoma protocols and discount for species."""
+
+speculation_problem = """
+**Canine multicentric lymphoma with renal comorbidity.** Induction is a multi-agent
+alkylator protocol; dose intensity buys remission depth and costs tumour lysis risk.
+The field's answer has been to reduce dose across the board. That is a workaround, not
+a solution."""
+
+mechanistic_question = "What decouples cytotoxic depth from marrow toxicity?"
+
+sufficiency_scarcity = """
+Scarcity here is a matter of sample size, not of study design: the trials exist, they
+are just small. Weakness is not absence."""
+
+sufficiency_population_rule = """
+Evidence about feline lymphoma does not answer a question about canine multicentric
+lymphoma: the species is the whole point of this project."""
+
+population_hierarchy = """
+murine findings stated about dogs, feline lymphoma findings stated about canine
+multicentric lymphoma"""
+
+route_rationale = """
+Marrow exposure tracks the area under the curve, and route sets it — a metronomic oral
+schedule flattens a peak that the same agent spikes intravenously."""
+
+fatal_criteria = [
+  "- **The proposed mechanism itself would deepen the nadir.** Fatal means the mode of action *as described* increases marrow exposure.",
+  "- **It reduces to escalating the alkylator dose** wearing different vocabulary.",
+]
+
+safety = false
+
+[directness]
+direct       = { prose = "dogs with multicentric lymphoma and renal impairment" }
+partial      = { prose = "dogs with multicentric lymphoma and normal renal function" }
+indirect     = { prose = "other canine neoplasia, or feline lymphoma" }
+extrapolated = { prose = "murine models, cell lines, or pure inference" }
+
+[[standing_risks]]
+name    = "tumour lysis"
+pattern = 'tumou?r lysis|lysis syndrome'
+prose   = "rapid cytoreduction in a high-burden lymphoma carries tumour lysis syndrome risk, and renal impairment removes the margin"
+must_not_match = [
+  "the chain quietly switches between acute effects",
+  "lyse the sample before assay",
+]
+
