@@ -221,14 +221,50 @@ async def test_a_lead_whose_task_cannot_be_queued_stays_pending(store, monkeypat
     assert decision.status == "queued"
 
 
-async def test_approving_a_source_refuses_explicitly_instead_of_promising(store):
-    """O registro de fontes é da Fase D. Marcar como aprovada e não fazer nada seria
-    prometer o que não existe."""
-    did = seed_discovery(store, kind="source")
+async def test_approving_a_source_creates_a_proposal_not_an_active_source(store):
+    """A Fase D destravou este caminho, e a distinção que ele preserva é o ponto.
+
+    A versão anterior deste teste exigia `status == 'deferred'` com "Fase D" no detalhe:
+    o registro de fontes não existia, e marcar como aprovada sem fazer nada seria prometer
+    o que não existe. Agora existe — e aprovar a DESCOBERTA continua não ativando a FONTE.
+
+    Aprovar a descoberta significa "vale investigar"; ativar a fonte é outra decisão, e
+    juntá-las deixaria o batedor ligar por conta própria um endpoint que ninguém revisou.
+    Por isso a linha nasce fora de `active_sources`: invisível para o daemon e para o
+    portão de `fetch_source`.
+
+    MUTAÇÃO: `propose_source` gravar `approved_at` ou `yields_evidence = 1`.
+    """
+    did = seed_discovery(store, kind="source", url="https://www.openalex.org/works")
     decision = await approve(store, _queue(store), did)
-    assert decision.status == "deferred"
-    assert "Fase D" in decision.detail
+
+    assert decision.status == "approved"
+    assert store.source_state("openalex-org") == "proposta"
+    assert [r["slug"] for r in store.active_sources()] == ["pubmed"], (
+        "a proposta entrou em active_sources: o daemon passaria a consultá-la e o portão "
+        "de fetch_source a consideraria"
+    )
+    assert not store.source_yields_evidence("openalex-org")
+    # nada foi enfileirado: uma fonte proposta não coleta
     assert store.conn.execute("SELECT COUNT(*) AS n FROM tasks").fetchone()["n"] == 0
+
+
+async def test_two_discoveries_on_the_same_domain_do_not_collide(store):
+    """Duas descobertas apontando para o mesmo domínio é o caso comum, não o excepcional.
+
+    MUTAÇÃO: `propose_source` levantar em vez de devolver False — a segunda aprovação
+    quebra e a descoberta fica presa em `pending` para sempre.
+    """
+    a = seed_discovery(store, kind="source", url="https://openalex.org/w1")
+    b = seed_discovery(store, kind="source", url="https://www.openalex.org/w2")
+    first = await approve(store, _queue(store), a)
+    second = await approve(store, _queue(store), b)
+
+    assert first.status == second.status == "approved"
+    assert "já proposta" in second.detail
+    assert store.conn.execute(
+        "SELECT COUNT(*) AS n FROM sources_registry WHERE slug = 'openalex-org'"
+    ).fetchone()["n"] == 1
 
 
 async def test_approving_an_observation_on_a_database_without_the_rebuild(store,

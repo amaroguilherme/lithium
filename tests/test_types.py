@@ -21,7 +21,6 @@ from lithium.types import (
     Grade,
     QuestionKind,
     QuestionStatus,
-    SourceKind,
     StuckReason,
     evidence_weight,
 )
@@ -29,29 +28,57 @@ from lithium.types import (
 SCHEMA = SCHEMA_PATH.read_text(encoding="utf-8")
 
 
-def _check_values(column: str) -> set[str]:
-    """Extrai o conjunto de literais de um `CHECK (<column> IN ('a', 'b', ...))`."""
-    match = re.search(
-        rf"{column}\s+IN\s*\(([^)]*)\)", SCHEMA, re.IGNORECASE | re.DOTALL
-    )
-    assert match, f"nenhum CHECK ... IN encontrado para a coluna {column!r}"
+def _check_values(column: str, table: str) -> set[str]:
+    """Literais de um `CHECK (<column> IN (...))`, escopado a UMA tabela.
+
+    A `table` é obrigatória, e não é zelo: `kind` existe como coluna em `sources`,
+    `questions`, `memories`, `llm_calls` e `discoveries`. Enquanto a versão sem escopo
+    varria o schema inteiro, ela devolvia o PRIMEIRO CHECK que casasse — e quando a Fase D
+    trocou o CHECK de `sources.kind` por uma FK, o teste passou a comparar `SourceKind`
+    contra o vocabulário de `questions.kind` ('FACTUAL', 'SYNTHESIS', ...). Ele falhou por
+    sorte: a comparação era de igualdade. Um `>=` teria ficado verde medindo outra tabela.
+    """
+    ddl = re.search(rf"CREATE TABLE IF NOT EXISTS {table}\s*\((.*?)\n\);",
+                    SCHEMA, re.IGNORECASE | re.DOTALL)
+    assert ddl, f"não achei o CREATE TABLE de {table!r}"
+    match = re.search(rf"{column}\s+IN\s*\(([^)]*)\)", ddl.group(1),
+                      re.IGNORECASE | re.DOTALL)
+    assert match, f"nenhum CHECK ... IN para {table}.{column}"
     return set(re.findall(r"'([^']+)'", match.group(1)))
 
 
-def test_source_kind_matches_schema():
-    assert _check_values("kind") == {k.value for k in SourceKind}
+def test_the_source_vocabulary_is_the_registry_not_a_check():
+    """A Fase D trocou `CHECK (kind IN (4 literais))` por FK para `sources_registry`.
+
+    O CHECK era o que impedia uma fonte nova de ser NOMEADA: o INSERT era rejeitado antes
+    de qualquer portão de política. Este teste trava as duas metades — que o CHECK não
+    voltou, e que a FK existe — porque só a segunda deixaria o vocabulário sem aplicação
+    nenhuma.
+
+    MUTAÇÃO: restaurar o CHECK em `sources.kind`, ou trocar a FK por `TEXT NOT NULL` puro.
+    """
+    ddl = re.search(r"CREATE TABLE IF NOT EXISTS sources\s*\((.*?)\n\);",
+                    SCHEMA, re.IGNORECASE | re.DOTALL)
+    assert ddl, "não achei o CREATE TABLE de sources"
+    body = ddl.group(1)
+    assert not re.search(r"kind\s+TEXT[^,]*CHECK", body, re.I), (
+        "`sources.kind` voltou a ter CHECK: uma fonte nova deixa de poder ser nomeada"
+    )
+    assert re.search(r"kind\s+TEXT NOT NULL REFERENCES sources_registry\(slug\)", body), (
+        "a FK para o registro sumiu — o vocabulário de fontes ficaria sem aplicação"
+    )
 
 
 def test_direction_matches_schema():
-    assert _check_values("direction") == {d.value for d in Direction}
+    assert _check_values("direction", "claims") == {d.value for d in Direction}
 
 
 def test_question_status_matches_schema():
-    assert _check_values("status") >= {s.value for s in QuestionStatus}
+    assert _check_values("status", "questions") >= {s.value for s in QuestionStatus}
 
 
 def test_stuck_reason_matches_schema():
-    assert _check_values("stuck_reason") == {s.value for s in StuckReason}
+    assert _check_values("stuck_reason", "questions") == {s.value for s in StuckReason}
 
 
 def test_grade_enum_matches_seeded_weights():

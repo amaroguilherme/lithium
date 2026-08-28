@@ -479,10 +479,9 @@ class LoopLLM(ScriptedLLM):
 
 def _queries(*pairs) -> "SpeculationQueries":  # noqa: F821
     from lithium.llm.schemas import SourceQuery, SpeculationQueries
-    from lithium.types import SourceKind
-
+    
     return SpeculationQueries(queries=[
-        SourceQuery(source=SourceKind(src), query=q, seeking="elo 2")
+        SourceQuery(source=src, query=q, seeking="elo 2")
         for src, q in pairs
     ])
 
@@ -540,13 +539,41 @@ async def test_query_prompt_marks_which_links_need_anchoring(store):
     assert "transdermal patch" in prompt, "a via precisa chegar ao planejador de buscas"
 
 
-async def test_queries_for_unimplemented_sources_are_dropped(store):
-    """Query para fonte sem adapter viraria tarefa morta na fila."""
+async def test_queries_for_unapproved_sources_are_dropped(store):
+    """Query para fonte não aprovada viraria tarefa morta na fila.
+
+    O filtro é o mesmo de antes; o conjunto deixou de ser a constante
+    `AVAILABLE_SOURCES` e passou a ser `sources_registry`. Este teste mede as DUAS
+    direções — a não aprovada cai, a aprovada sobrevive — porque um filtro que recusa
+    tudo passaria a metade que só checa a queda.
+
+    MUTAÇÃO: em `plan_queries`, devolver `plan.queries` sem filtrar.
+    """
     llm = LoopLLM([_batch(_spec())],
-                  queries=[_queries(("pubmed", "ok"), ("ctgov", "ainda não existe"))])
+                  queries=[_queries(("pubmed", "ok"), ("ctgov", "não aprovada"))])
     explorer = Explorer(store, llm, profile=PROFILE)
     [record] = await explorer.generate()
-    assert [q.source.value for q in await explorer.plan_queries(record.id)] == ["pubmed"]
+    assert [q.source for q in await explorer.plan_queries(record.id)] == ["pubmed"]
+
+
+async def test_an_approved_source_becomes_available_without_touching_code(store):
+    """A propriedade que a fase existe para entregar: aprovar uma fonte no registro a
+    torna escolhível pelo modelo, sem edição de código.
+
+    MUTAÇÃO: voltar o filtro para uma constante compilada — a fonte aprovada em runtime
+    passa a ser descartada, e a aprovação vira decoração.
+    """
+    store.conn.execute(
+        "INSERT INTO sources_registry(slug, description, base_url, yields_evidence, "
+        "  approved_at) VALUES('ctgov', 'registro de ensaios', 'https://x', 1, "
+        "  strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+    )
+    llm = LoopLLM([_batch(_spec())],
+                  queries=[_queries(("pubmed", "ok"), ("ctgov", "agora aprovada"))])
+    explorer = Explorer(store, llm, profile=PROFILE)
+    [record] = await explorer.generate()
+    assert sorted(q.source for q in await explorer.plan_queries(record.id)) == \
+        ["ctgov", "pubmed"]
 
 
 async def test_pursuit_is_recorded_so_it_does_not_repeat(store):

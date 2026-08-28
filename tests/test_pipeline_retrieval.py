@@ -18,7 +18,7 @@ from lithium.db import Store
 from lithium.pipeline.ingest import MAX_CHUNK_CHARS, Ingestor, split_passage
 from lithium.pipeline.retrieval import Retriever, fts_query, reciprocal_rank_fusion
 from lithium.sources.base import Passage, SourceRecord
-from lithium.types import Directness, Grade, SourceKind
+from lithium.types import Directness, Grade
 
 DIM = 32
 
@@ -66,7 +66,7 @@ def embedder():
 
 def _record(external_id: str, passages: list[Passage], **kw) -> SourceRecord:
     return SourceRecord(
-        kind=SourceKind.PUBMED,
+        kind="pubmed",
         external_id=external_id,
         title=kw.pop("title", f"Estudo {external_id}"),
         passages=passages,

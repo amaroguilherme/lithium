@@ -47,16 +47,26 @@ def test_discoveries_lists_the_pending_ones_with_the_cost_footer(wired):
     assert "busca" in result.output and "leitura" in result.output
 
 
-def test_approving_a_source_prints_the_explicit_refusal(wired):
-    """No idioma do `RECUSADO:` de `_focus_new`. Marcar como aprovada e não fazer nada
-    seria prometer o que a Fase D ainda não construiu."""
-    did = seed_discovery(wired.store, kind="source")
+def test_approving_a_source_says_what_is_still_missing(wired):
+    """Aprovar a descoberta registra uma PROPOSTA; ativar a fonte é outra decisão.
+
+    O CLI é quem imprime os próximos passos, porque é onde os nomes dos comandos são
+    verdade — `verbs.py` embutir sintaxe de CLI seria acoplamento na direção errada, e a
+    varredura do portão proíbe o nome ali de qualquer forma.
+
+    MUTAÇÃO: o CLI deixar de imprimir os próximos passos — o usuário aprova, vê um ✓, e
+    não tem como saber que a fonte não coleta nada.
+    """
+    did = seed_discovery(wired.store, kind="source", url="https://openalex.org/w")
     result = runner.invoke(cli.app, ["discoveries", "--approve", str(did)])
     assert result.exit_code == 0, result.output
-    assert "PENDENTE" in flat(result) and "Fase D" in flat(result)
-    assert wired.store.conn.execute(
-        "SELECT status FROM discoveries WHERE id = ?", (did,)
-    ).fetchone()["status"] == "deferred"
+    out = flat(result)
+    assert "PROPOSTA" in out and "não ativa" in out
+    assert "--spec" in out and "--approve" in out, (
+        "o usuário não é informado do que falta para a fonte coletar"
+    )
+    assert wired.store.source_state("openalex-org") == "proposta"
+    assert [r["slug"] for r in wired.store.active_sources()] == ["pubmed"]
 
 
 def test_rejecting_from_the_cli_writes_the_lesson(wired):
@@ -97,7 +107,9 @@ def test_deciding_twice_says_so_instead_of_doing_it_twice(wired):
     runner.invoke(cli.app, ["discoveries", "--approve", str(did)])
     result = runner.invoke(cli.app, ["discoveries", "--approve", str(did)])
     assert result.exit_code == 1
-    assert "já foi decidida" in result.output and "deferred" in result.output
+    # O status agora é `approved` (a Fase D destravou o tipo `source`); o que este teste
+    # trava é a IDEMPOTÊNCIA — decidir duas vezes recusa em vez de fazer duas vezes.
+    assert "já foi decidida" in result.output and "approved" in result.output
 
 
 def test_recon_without_the_key_says_exactly_how_to_turn_it_on(wired):

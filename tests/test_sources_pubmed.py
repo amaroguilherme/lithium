@@ -16,7 +16,7 @@ import pytest
 
 from lithium.sources.base import SearchSpec
 from lithium.sources.pubmed import PubMedSource, _pick_strongest
-from lithium.types import Grade, SourceKind
+from lithium.types import Grade
 
 FIXTURES = Path(__file__).parent / "fixtures"
 EFETCH_XML = (FIXTURES / "pubmed_efetch.xml").read_text(encoding="utf-8")
@@ -93,7 +93,7 @@ def test_parses_all_records_from_real_xml(records):
     assert {r.external_id for r in records} == {
         "30712879", "37956131", "26834458", "21403524"
     }
-    assert all(r.kind is SourceKind.PUBMED for r in records)
+    assert all(r.kind == "pubmed" for r in records)
 
 
 def test_structured_abstract_becomes_one_passage_per_section(records):

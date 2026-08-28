@@ -96,9 +96,9 @@ def _answerer(store, llm=None) -> Answerer:
     return Answerer(store, llm or ScriptedLLM(), FakeEmbedder(), profile=PROFILE)
 
 
-async def _claim(store, pmid: str, statement: str) -> None:
+async def _claim(store, pmid: str, statement: str, *, doi: str | None = None) -> None:
     sid = store.upsert_source(kind="pubmed", external_id=pmid, raw={}, title="t",
-                              year=2020)
+                              year=2020, doi=doi)
     cid = store.add_chunk(source_id=sid, ord=0,
                           text=f"{statement} quetiapina ansiedade bipolar TAG contexto.")
     [vector] = await FakeEmbedder().embed([statement])
@@ -711,3 +711,45 @@ async def test_the_evidence_reaches_the_screen_so_co_terms_can_fire(store):
     assert "abrupt_discontinuation" in alerts, (
         f"a evidência não chegou ao screen: só {sorted(alerts)}"
     )
+
+
+# ═══════════════════════════════════ o piso de citações conta ARTIGOS
+
+
+async def test_two_claims_from_the_same_article_do_not_satisfy_the_floor(store):
+    """O piso é de FONTES INDEPENDENTES, e duas linhas do mesmo DOI não são duas fontes.
+
+    Este teste existe porque a mutação provou que faltava: reverter `n_articles` para
+    `len(hits)` em `answer.py` deixava as 996 passando. O teste que havia exercitava
+    `distinct_articles` ISOLADA — provava que a função conta certo, não que o loop a usa.
+    É a classe "fiação-não-testada", a sexta ocorrência dela neste repo.
+
+    Medido no item 9: 100% dos PMIDs que o PubMed colhe neste domínio também estão no
+    Europe PMC. Com duas fontes, o mesmo paper entra duas vezes e chega ao juiz como duas
+    fontes independentes concordando.
+
+    MUTAÇÃO: `if _is_sufficient(verdict) and len(hits) >= MIN_CITATIONS:`.
+    """
+    doi = "10.1016/j.jad.2023.11.001"
+    await _claim(store, "111", "Quetiapina reduziu ansiedade em bipolar I.", doi=doi)
+    await _claim(store, "222", "Quetiapina reduziu HAM-A versus placebo.", doi=doi)
+    qid = _question(store)
+
+    result = await _answerer(store).round(qid)
+
+    assert result.action is not Action.ANSWER, (
+        "duas claims do MESMO artigo satisfizeram o piso de citações independentes"
+    )
+    assert _row(store, qid)["answer"] is None
+
+
+async def test_two_claims_from_different_articles_still_answer(store):
+    """A contrapartida. Sem ela o piso poderia virar "nunca responde" e o teste acima
+    ficaria verde medindo o bug oposto."""
+    await _claim(store, "111", "Quetiapina reduziu ansiedade em bipolar I.",
+                 doi="10.1/um")
+    await _claim(store, "222", "Quetiapina reduziu HAM-A versus placebo.",
+                 doi="10.1/dois")
+    qid = _question(store)
+
+    assert (await _answerer(store).round(qid)).action is Action.ANSWER
