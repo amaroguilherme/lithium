@@ -1,0 +1,64 @@
+# lithium :: configuração padrão
+#
+# Copie para config.local.toml (gitignored) para sobrescrever com API keys e
+# caminhos desta máquina. config.local.toml tem precedência.
+
+# data_dir = "/caminho/explicito"   # padrão: diretório de dados do usuário do SO
+
+[llm]
+base_url = "http://127.0.0.1:8080/v1"
+model = "gemma-4-12b-it"
+# Único acoplamento com o resto do qyra-labs.
+model_path = "../base_models/gemma-4-12b-it-Q5_K_M.gguf"
+n_ctx = 16384
+n_parallel = 2
+n_gpu_layers = 99
+temperature = 0.2
+
+[embedding]
+base_url = "http://127.0.0.1:8081/v1"
+model = "bge-m3"
+dim = 1024
+
+[worker]
+concurrency = 3
+max_attempts = 3
+
+[question]
+max_rounds = 3
+human_queue_limit = 5
+# Calibrado para bge-m3: paráfrases reais ficam em 0.79-0.95,
+# perguntas distintas em 0.66-0.71. Ver config.py.
+dedup_threshold = 0.78
+
+[sources.pubmed]
+# Sem key: 3 req/s. Com key (grátis em ncbi.nlm.nih.gov/account): 10 req/s.
+rate_per_s = 3.0
+# api_key = "..."
+
+# ── batedor da web ────────────────────────────────────────────────────────────
+# DESABILITADO por padrão, e de verdade: sem `enabled = true` o provedor levanta
+# `ReconDisabled` na construção, com a mensagem dizendo o que acrescentar.
+#
+# É a ÚNICA parte deste sistema que tem FATURA. Brave Search API: US$ 5/1.000
+# buscas, com US$ 5 de crédito mensal ≈ 1.000 grátis/mês ≈ 33/dia. Acima de ~32
+# buscas/dia você sai do tier grátis. A chave vai em config.local.toml
+# (gitignored), NUNCA aqui e NUNCA no banco.
+#
+# [recon]
+# enabled = true
+# provider = "brave"
+# api_key = "..."             # https://api-dashboard.search.brave.com
+# contact = "seu@email"       # vai no User-Agent; acesso automatizado se identifica
+# max_calls_per_sweep = 6     # buscas faturadas por varredura (1 varredura/dia)
+# max_calls_per_day = 20      # teto DURÁVEL, em recon_budget
+# max_reads_per_query = 1     # páginas lidas por triagem
+# max_pages_per_day = 8       # ~9,9 min de GPU/dia no pior caso
+# pending_limit = 8           # contrapressão: fila que ninguém lê não é usada
+# expire_after_days = 14
+# respect_robots = true
+
+[sync]
+# dataset_repo = "usuario/lithium-corpus"
+# model_repo = "usuario/lithium-gemma4-lora"
+interval_s = 600.0

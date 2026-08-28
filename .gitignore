@@ -1,0 +1,11 @@
+data/
+# Os GGUF vivem DENTRO do repo desde a migração. São ~8,4 GB, e o GitHub recusa arquivo
+# acima de 100 MB: sem esta linha o primeiro `git add -A` põe os pesos no índice e o push
+# falha — ou, pior, o commit passa localmente e os objetos ficam no histórico, o que só
+# sai com reescrita. Isto NÃO protege contra `git add -f`.
+base_models/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+config.local.toml

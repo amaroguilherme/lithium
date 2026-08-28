@@ -1,0 +1,48 @@
+[project]
+name = "lithium"
+version = "0.1.0"
+description = "Assistente autônomo de síntese de evidência biomédica"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.10",
+    "typer>=0.15",
+    "rich>=13.9",
+    "platformdirs>=4.3",
+    "sqlite-vec>=0.1.6",
+    "numpy>=2.1",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+]
+
+[project.scripts]
+lithium = "lithium.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lithium"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# `live` exige um llama-server rodando; fica fora da execução padrão e do CI.
+addopts = "-m 'not live'"
+markers = [
+    "live: requer llama-server local com o modelo carregado",
+    # RODA por padrão, de propósito: teste desligado não protege nada. A marca é um
+    # RÓTULO, para `-m provisional` listar de uma vez tudo que afirma sobre uma fixture
+    # que ainda não foi gravada de uma resposta real. Ver o `_PROVENANCE` em
+    # tests/fixtures/recon/brave_web_search.SYNTHETIC.json.
+    "provisional: afirma sobre fixture SINTÉTICA; regravar com `recon --record-fixture`",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
