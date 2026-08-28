@@ -18,6 +18,7 @@ from rich.logging import RichHandler
 from rich.table import Table
 
 from lithium.config import load_config
+from lithium.sources.http import resolve_credential
 from lithium.db import Store
 from lithium.db.store import DIRECTNESS_WEIGHTS, GRADE_WEIGHTS
 from lithium.types import Directness, Grade
@@ -280,15 +281,16 @@ def discoveries(
                                        dim=cfg.embedding.dim) as emb:
                 decision = await approve_verb(store, TaskQueue(store), approve,
                                               embedder=emb)
-            if decision.status == "deferred":
+            console.print(f"[green]✓[/green] #{approve} → {decision.status} "
+                          f"[dim]{decision.detail}[/dim]")
+            if decision.discovery_kind == "source":
+                # Os próximos passos são impressos AQUI, não na camada de domínio: os
+                # nomes dos comandos são verdade no CLI, e `verbs.py` embutir sintaxe de
+                # CLI seria acoplamento na direção errada.
                 console.print(
-                    f"[yellow]PENDENTE:[/yellow] #{approve} é do tipo `source`, e o "
-                    f"registro de fontes não existe ainda (Fase D). Guardada como "
-                    f"`deferred` — nada foi perdido."
+                    "  [dim]descreva a busca e ative:[/dim] "
+                    "`lithium sources --spec <slug>` → `lithium sources --approve <slug>`"
                 )
-            else:
-                console.print(f"[green]✓[/green] #{approve} → {decision.status} "
-                              f"[dim]{decision.detail}[/dim]")
         try:
             asyncio.run(_approve())
         except AlreadyDecided as exc:
@@ -1547,7 +1549,155 @@ def _focus_new(store, cfg, slug: str) -> None:
                   f"ative com `lithium focus --use {slug}`")
 
 
+
+
+
+@app.command()
+def sources(
+    config: ConfigOpt = None,
+    approve: Annotated[str | None, typer.Option(
+        "--approve", help="Ativa a fonte: passa a ser consultada e a poder virar claim",
+    )] = None,
+    revoke: Annotated[str | None, typer.Option(
+        "--revoke", help="Desativa sem apagar; o corpus já colhido continua válido",
+    )] = None,
+    spec: Annotated[str | None, typer.Option(
+        "--spec", help="Slug cuja spec de busca/fetch será lida do stdin (JSON)",
+    )] = None,
+    evidence: Annotated[bool, typer.Option(
+        "--evidence/--no-evidence",
+        help="Junto de --approve: esta fonte pode produzir claims?",
+    )] = False,
+) -> None:
+    """Lista o registro de fontes, ou aprova, revoga e descreve uma.
+
+    Existe porque sem ele o registro é uma tabela que ninguém pode mudar — e uma tabela
+    que ninguém pode mudar é uma constante com passos extras, que é exatamente o que
+    `EVIDENCE_KINDS` era.
+
+    `--approve` e `--evidence` são separados de propósito. "Consulte esta fonte" e "o que
+    ela devolve pode virar evidência graduável" são duas afirmações diferentes: um registro
+    de ensaios é útil para descobrir o que existe e não é desenho de estudo. Juntá-las faria
+    a segunda pegar carona na primeira, que é como uma bula virou claim com peso 0,408 na
+    medição do item 9.
+    """
+    import json as _json
+    import sys as _sys
+
+    cfg = load_config(config)
+    store = _store(cfg)
+
+    def _row(slug: str):
+        row = store.conn.execute(
+            "SELECT * FROM sources_registry WHERE slug = ?", (slug,)
+        ).fetchone()
+        if row is None:
+            console.print(f"[red]fonte desconhecida:[/red] {slug}")
+            raise typer.Exit(1)
+        return row
+
+    if spec:
+        _row(spec)
+        raw = _sys.stdin.read().strip()
+        if not raw:
+            console.print(
+                "[red]nada no stdin.[/red] Passe o JSON da spec, por exemplo:\n"
+                '  echo \'{"search": {"query_param": "search", "id_path": "results", '
+                '"id_field": "id"}, "fetch": {"path": "works/{id}", '
+                '"fields": {"title": "title", "passages": ["abstract"]}}}\' '
+                "| lithium sources --spec openalex-org"
+            )
+            raise typer.Exit(1)
+        try:
+            parsed = _json.loads(raw)
+        except _json.JSONDecodeError as exc:
+            console.print(f"[red]JSON inválido:[/red] {exc}")
+            raise typer.Exit(1) from exc
+        store.conn.execute(
+            "UPDATE sources_registry SET search_spec_json = ?, fetch_spec_json = ? "
+            " WHERE slug = ?",
+            (_json.dumps(parsed.get("search") or {}),
+             _json.dumps(parsed.get("fetch") or {}), spec),
+        )
+        console.print(f"[green]✓[/green] spec de {spec} gravada")
+        return
+
+    if revoke:
+        _row(revoke)
+        store.conn.execute(
+            "UPDATE sources_registry SET approved_at = NULL WHERE slug = ?", (revoke,))
+        console.print(
+            f"[green]✓[/green] {revoke} desativada. [dim]O que ela já colheu continua "
+            f"no corpus e continua pesando: revogar não reescreve julgamento passado."
+            f"[/dim]"
+        )
+        return
+
+    if approve:
+        row = _row(approve)
+        if evidence and not (row["search_spec_json"] and row["fetch_spec_json"]) \
+                and row["adapter"] == "http":
+            console.print(
+                "[red]RECUSADO:[/red] esta fonte não tem spec de busca, então ativá-la "
+                "como fonte de EVIDÊNCIA enfileiraria tarefas que morrem no primeiro "
+                "`search`. Descreva com `lithium sources --spec` primeiro."
+            )
+            raise typer.Exit(1)
+        store.conn.execute(
+            "UPDATE sources_registry "
+            "   SET approved_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), "
+            "       yields_evidence = ? "
+            " WHERE slug = ?",
+            (1 if evidence else 0, approve),
+        )
+        console.print(
+            f"[green]✓[/green] {approve} ativada"
+            + (" [bold]como fonte de evidência[/bold]" if evidence
+               else " [dim](não produz claims — só descoberta)[/dim]")
+        )
+        console.print("  [dim]reinicie o daemon: as fontes são montadas na subida.[/dim]")
+        return
+
+    rows = list(store.conn.execute(
+        "SELECT r.slug, r.description, r.yields_evidence, r.approved_at, r.adapter,"
+        "       r.credential_ref, r.search_spec_json,"
+        "       (SELECT COUNT(*) FROM sources s WHERE s.kind = r.slug) AS colhidas "
+        "  FROM sources_registry r ORDER BY r.approved_at IS NULL, r.slug"
+    ))
+    if not rows:
+        console.print("[yellow]registro vazio.[/yellow]")
+        return
+
+    table = Table(box=None, pad_edge=False)
+    for col in ("", "slug", "estado", "evidência", "adapter", "colhidas", "descrição"):
+        table.add_column(col)
+    for r in rows:
+        ativa = r["approved_at"] is not None
+        falta_spec = (r["adapter"] == "http" and not r["search_spec_json"])
+        table.add_row(
+            "→" if ativa else " ",
+            f"[bold]{r['slug']}[/bold]" if ativa else r["slug"],
+            "ativa" if ativa else "[yellow]proposta[/yellow]",
+            "[bold]sim[/bold]" if r["yields_evidence"] else "não",
+            r["adapter"] + ("[yellow] sem spec[/yellow]" if falta_spec else ""),
+            str(r["colhidas"]),
+            (r["description"] or "")[:44],
+        )
+    console.print(table)
+
+    sem_cred = [r["slug"] for r in rows
+                if r["approved_at"] and r["credential_ref"]
+                and resolve_credential(r["credential_ref"], cfg) is None
+                and r["adapter"] != "pubmed"]
+    if sem_cred:
+        console.print(
+            f"[yellow]credencial não resolve para: {', '.join(sem_cred)}[/yellow] — "
+            f"estas fontes ficam FORA do daemon em vez de tentar sem auth."
+        )
+    if not any(r["approved_at"] and r["yields_evidence"] for r in rows):
+        console.print(
+            "[red]nenhuma fonte de evidência ativa:[/red] a colheita não produz claims."
+        )
+
 if __name__ == "__main__":
     app()
-
-
