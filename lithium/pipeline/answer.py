@@ -45,7 +45,7 @@ from lithium.db import Store
 from lithium.llm import LLMClient, LLMError
 from lithium.llm.prompts import budget_guard, render
 from lithium.llm.schemas import SufficiencyVerdict
-from lithium.pipeline.retrieval import Retriever
+from lithium.pipeline.retrieval import ClaimHit, Retriever
 from lithium.focus import FocusProfile
 from lithium.safety.rules import ruleset_from_profile
 from lithium.safety.screen import Segment, screen
@@ -95,6 +95,40 @@ coisa, um por julgamento e um por contagem, e o determinístico é o que vale.""
 EVIDENCE_K = 10
 JUDGE_MAX_TOKENS = 320
 ANSWER_MAX_TOKENS = 384
+
+
+def distinct_articles(hits: list[ClaimHit], store: Store) -> int:
+    """Quantos ARTIGOS distintos as citações representam.
+
+    `len(hits)` conta CLAIMS, e duas claims podem vir do mesmo paper — ou, desde que existe
+    mais de uma fonte, de duas LINHAS de `sources` que são o mesmo artigo. Medido no item
+    9: 100% dos PMIDs que o PubMed colhe neste domínio também estão no Europe PMC, então o
+    mesmo paper entraria duas vezes e chegaria ao juiz como duas fontes independentes
+    concordando — satisfazendo o piso de citações com um artigo só.
+
+    `article_key` é a coluna GENERATED que colapsa isso: DOI normalizado quando existe,
+    `kind:external_id` quando não. Num banco legado ela não existe (o rebuild de `sources`
+    é adiado quando há linhas), e aí o fallback conta `source_id` distinto — que é o
+    comportamento antigo, e é honesto: sem a coluna não há como saber que dois ids são o
+    mesmo artigo.
+    """
+    ids = {h.source_id for h in hits}
+    if not ids:
+        return 0
+    # `table_xinfo` e NÃO `table_info`: uma coluna GENERATED VIRTUAL não aparece em
+    # `table_info`, e `article_key` é VIRTUAL. Com `table_info` o guard sempre cai no
+    # fallback, o piso volta a contar `source_id` distinto, e o teste que policia isso
+    # falha — foi assim que este bug foi pego. O repo já documentava a armadilha em
+    # `Store._ADDED_COLUMNS`, por outro motivo.
+    cols = {r["name"] for r in store.conn.execute("PRAGMA table_xinfo(sources)")}
+    if "article_key" not in cols:
+        return len(ids)
+    marks = ",".join("?" * len(ids))
+    row = store.conn.execute(
+        f"SELECT COUNT(DISTINCT article_key) AS n FROM sources WHERE id IN ({marks})",
+        tuple(ids),
+    ).fetchone()
+    return int(row["n"])
 
 
 class Action(StrEnum):
@@ -267,15 +301,20 @@ class Answerer:
             )
             return RoundResult(Action.SEARCH_AGAIN, reason="juiz indisponível")
 
-        if _is_sufficient(verdict) and len(hits) >= MIN_CITATIONS:
+        # ARTIGOS distintos, não claims. Duas claims do mesmo paper — ou duas linhas de
+        # `sources` que são o mesmo artigo em fontes diferentes — satisfariam o piso com
+        # uma fonte só, que é exatamente o que "duas citações independentes" nega.
+        n_articles = distinct_articles(hits, self.store)
+        if _is_sufficient(verdict) and n_articles >= MIN_CITATIONS:
             return await self._answer(question_id, question, hits, verdict)
         if _is_sufficient(verdict):
             # O juiz aprovou e o corpus não sustenta. Não é falha dele: `_evidence_block`
             # diz "(no verified claim matched)" e um modelo complacente aprova mesmo
             # assim. O portão determinístico é o que impede uma resposta sem fonte.
             log.info(
-                "pergunta #%d: juiz aprovou com %d citação(ões); mínimo é %d",
-                question_id, len(hits), MIN_CITATIONS,
+                "pergunta #%d: juiz aprovou com %d claim(s) em %d artigo(s) distinto(s); "
+                "mínimo é %d artigo(s)",
+                question_id, len(hits), n_articles, MIN_CITATIONS,
             )
 
         rounds = int(row["rounds"]) + 1
