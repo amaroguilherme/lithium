@@ -32,8 +32,9 @@ what makes the system useful where direct evidence barely exists.
 **2. Everything the model believes must be traceable to something it did not invent.**
 
 Two gates stand between text and belief. The first requires a verbatim quote present in the
-source. The second asks, in isolation, whether that quote actually supports the claim,
-never shown the draft it is judging. Both fail closed.
+source. The second asks whether that quote, taken alone — no background knowledge, no
+guessing at what the rest of the paper probably says — actually supports the claim. Both
+fail closed.
 
 This is enforced in more places than feels necessary, because the failure is silent. A
 pattern the system derives about its own work must cite the specific records it was shown.
@@ -43,17 +44,21 @@ annotates evidence and never reorders it.
 
 ---
 
-## What it actually does
+## What it does
+
+Built and under test; none of it has yet run over a real corpus.
 
 Runs a daemon that harvests literature, extracts claims behind both gates, generates its
-own research questions, and tries to answer them — escalating to you only when it cannot.
+own research questions, and tries to answer them — judging the evidence before any draft
+exists, escalating to you only when it cannot.
 In parallel it runs a speculative track: proposes mechanistic hypotheses, criticises them
 adversarially, turns the survivors into targeted searches, and re-grounds the chains as the
 corpus grows.
 
 It reflects on its own work and writes durable lessons: dead ends, sterile query shapes,
-patterns across claims. It goes out to the open web, reads what it finds, and
-reports back; nothing it read becomes evidence until you say so.
+patterns across claims. Given a search API key — off by default, and the only part of this
+with a bill — it goes out to the open web, reads what it finds and reports back; nothing it
+read becomes evidence until you say so.
 
 Two consent regimes, deliberately different: what it learns about **its own work** it
 records on its own; anything about **you**, or anything read from the open web, waits for
@@ -66,11 +71,16 @@ your confirmation.
 Needs `llama.cpp` and roughly 9 GB of local weights.
 
 ```bash
-uv venv && uv pip install -e ".[dev]"
+uv venv && source .venv/bin/activate      # the entrypoint lands in .venv/bin
+uv pip install -e ".[dev]"
 brew install llama.cpp                    # macOS; Windows: CUDA build from ggml-org
 lithium init                              # database, evidence weights, seed focus
 lithium serve                             # llama-servers + workers; Ctrl-C stops
 ```
+
+Machine-specific settings go in `config.local.toml`, also gitignored. Note that the loader
+takes the **first** file that exists and does not merge: once that file is there,
+`config.toml` is never read.
 
 ```bash
 lithium status                    # counts, queue, focus, recon budget
@@ -99,6 +109,14 @@ as the corpus grew.
 **Structured output is grammar-constrained** from Pydantic schemas, so the model cannot emit
 a value outside an enum rather than being asked politely not to. This also means anything in
 a schema docstring reaches the model: a channel no golden-render test can see.
+
+**The evidence ladder is where "any subject" still leaks.** Its *weights* are a table and
+its *definitions* come from the focus, but the level *names* are a closed enum of clinical
+study designs, and that enum is the grammar constraint. A focus about alloys would still
+have its claims graded `rct` and `case_report`. Fixing it means making `grade` an edge, the
+way `directness` already is; until then, switching to a domain with a different ladder
+leaves the old corpus readable but unweighted, which is why re-grading is refused rather
+than silently destructive.
 
 **Research mode is one switch, and memory ignores it.** Turning autonomous research off
 still serves what you ask for; learning from conversation is conversation, not research.

@@ -692,7 +692,7 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | **A** | **O objeto foco** — `directness` vira aresta `(claim, foco)`; `grade` ganha escala | ✅ |
 | **B** | **Trocar de foco** — perfil em disco + re-lente; absorveu o item 13 | ✅ |
 | **C** | **Reconhecimento web** — ele pesquisa, te conta, você autoriza a memorizar | ✅ |
-| **D** | **Registro de fontes + adapter genérico** — paga a dívida de fiação do item 9 | ⏳ |
+| **D** | **Registro de fontes + adapter genérico** — pagou a dívida de fiação do item 9 | ✅ |
 
 As Fases A–D vêm de um plano aprovado, com decisões, custos e mutações por fase:
 `~/.claude/plans/estou-pensando-numa-forma-iridescent-melody.md`. A tese em uma linha: **um
@@ -1992,6 +1992,84 @@ inclusive para `--now` — é a única coisa aqui que gasta dinheiro.
 **sem merge**. Nesta máquina `config.local.toml` existe, então `config.toml` nunca é lido.
 Agora uma seção com nome errado emite WARNING nomeando o arquivo, e uma chave com nome
 errado levanta em vez de virar `None`.
+
+---
+
+## Fase D — o registro de fontes ✅
+
+999 testes, 8 mutações executadas. **Três não mataram nada na primeira passada**, e cada
+uma virou trava nova — as três eram a mesma classe, "fiação-não-testada", que este repo já
+cometeu seis vezes:
+
+- reverter o piso de citações para `len(hits)` deixava 996 verdes. O teste que havia
+  exercitava `distinct_articles` **isolada** — provava que a função conta certo, não que o
+  loop a usa.
+- apagar `"source": q.source` do payload de `pursue_speculation` deixava tudo verde. Havia
+  teste de que `plan_queries` devolve a fonte; nenhum de que ela **chega** ao payload.
+- o daemon voltar ao dict literal passava, porque o teste checava `"build_sources" in src`
+  e o **import** sobrevivia à remoção da chamada. Passou a afirmar sobre a CHAMADA, por AST.
+
+### `EVIDENCE_KINDS` e `SourceKind` saíram
+
+O portão não desapareceu: continua em `fetch_source`, onde ingere, e passou a **consultar**
+`sources_registry.yields_evidence`. A pergunta é a mesma ("isto pode virar claim?"); mudou
+quem responde. Uma allowlist de duas APIs em código expressa uma decisão de política como se
+fosse um fato sobre o mundo; a coluna expressa o contrato — publica estudo com prosa citável
+verbatim e desenho graduável na escala do foco.
+
+`SourceKind` era `StrEnum` de quatro valores espelhado num `CHECK (kind IN (...))`. Duas
+consequências: uma quinta fonte não conseguia ser **nomeada** (o INSERT era rejeitado antes
+de qualquer política), e três dos quatro membros nunca tiveram adapter — o mesmo "botão que
+não configura nada" que o repo recusa em `Strategy.tags`. `sources.kind` virou FK para o
+registro, aplicada na escrita.
+
+**As medições do item 9 continuam válidas e continuam registradas.** Elas dizem que aquelas
+três fontes não devem produzir evidência neste foco, e é por isso que só o PubMed nasce
+aprovado. O que elas não justificavam era congelar a lista para sempre.
+
+### A dívida de fiação, paga por inteiro
+
+`harvest_query` fixava `'pubmed'` quatro vezes; `pursue_speculation` montava o payload sem
+`q.source`; `Strategy.sources` era código morto documentado como tal; o daemon montava um
+dict literal. O efeito somado: **"o modelo escolhe onde buscar" era verdade como estrutura
+de dados e falso como comportamento** — o campo atravessava o schema e morria em dois
+lugares antes da busca. Agora a fonte vem do payload, o filtro lê o registro, e o prompt
+recebe as fontes **com descrição** em vez de valores crus de enum.
+
+### Duas decisões que ficaram separadas de propósito
+
+`--approve` e `--evidence` são flags distintas. "Consulte esta fonte" e "o que ela devolve
+pode virar evidência graduável" são afirmações diferentes: um registro de ensaios serve para
+descobrir o que existe e não é desenho de estudo. Juntá-las faria a segunda pegar carona na
+primeira — que é exactamente como uma bula virou claim com `grade='rct'` e peso 0,408 na
+medição do item 9.
+
+E aprovar a **descoberta** não ativa a **fonte**: a proposta nasce fora de `active_sources`,
+logo fora do daemon e fora do portão. Ativar exige descrever a busca e dizer que se confia
+nela.
+
+### `article_key`, e a duplicata que virou real
+
+Com uma fonte só, `(kind, external_id)` bastava. Com duas, o mesmo paper entra como duas
+linhas e chega ao juiz como **duas fontes independentes concordando** — satisfazendo o piso
+de citações com um artigo só. `article_key` é coluna GENERATED (DOI normalizado, ou
+`kind:external_id`), e o piso passou a contar artigos distintos.
+
+Uma armadilha que o repo já documentava e na qual eu caí: coluna `GENERATED VIRTUAL` **não
+aparece** em `PRAGMA table_info`. O guard sempre caía no fallback. `table_xinfo` a vê.
+
+### O portão da Fase C funcionando
+
+Escrevi o INSERT de `sources_registry` dentro de `lithium/recon/verbs.py` e a varredura de
+AST reprovou: o pacote do batedor não pode nomear `sources`. A trava está certa — o SQL do
+registro foi para `store.py`, e o batedor fala com ele por indireção. Mesma razão pela qual
+a ponte `recon_lead` mora em `worker/handlers.py`.
+
+### Fora da Fase D
+
+`--regrade` e `grade` como aresta (fase própria, já registrada); parser dedicado por fonte
+além do PubMed (o genérico cobre JSON com campos nomeados; XML irregular exige módulo);
+remoção de `sources.population_tag` (exige rebuild de `sources` com dados).
 
 ---
 
