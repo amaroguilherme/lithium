@@ -24,7 +24,7 @@ import httpx
 
 from lithium.sources.base import Passage, SearchSpec, SourceRecord
 from lithium.rate_limit import RateLimiter
-from lithium.types import Grade, SourceKind
+from lithium.types import Grade
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def _text(node: ET.Element | None) -> str:
 
 
 class PubMedSource:
-    kind = SourceKind.PUBMED
+    kind = "pubmed"
 
     def __init__(
         self,
@@ -176,7 +176,7 @@ class PubMedSource:
         ]
 
         return SourceRecord(
-            kind=SourceKind.PUBMED,
+            kind="pubmed",
             external_id=pmid,
             title=title,
             passages=passages,

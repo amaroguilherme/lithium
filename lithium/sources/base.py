@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from lithium.types import Directness, Grade, SourceKind
+from lithium.types import Directness, Grade
 
 
 @dataclass(slots=True)
@@ -25,7 +25,7 @@ class Passage:
 
 @dataclass(slots=True)
 class SourceRecord:
-    kind: SourceKind
+    kind: str
     external_id: str
     title: str
     passages: list[Passage]
@@ -54,26 +54,18 @@ class SearchSpec:
     limit: int = 20
 
 
-EVIDENCE_KINDS: frozenset[SourceKind] = frozenset({SourceKind.PUBMED})
-"""Quais tipos de fonte podem virar `claims`. É um portão de RUNTIME, e a razão é medida.
-
-`AVAILABLE_SOURCES` (em explore.py) **não** protege este caminho: ele só filtra queries
-planejadas e edita uma dica de prompt. Um adapter registrado em `Context.sources` chega a
-`claims` sem passar por ele — construído e medido: uma linha em `daemon.py` mais um
-`fetch_source {"kind": "fda"}` fez o campo de contraindicação de uma bula, cujo conteúdo
-literal é *"None with olanzapine monotherapy…"*, virar uma claim com `grade='rct'`,
-`directness='partial'` e peso 0,408 na view `claim_weight`.
-
-Um fato regulatório não é desenho de estudo, e a escala de `Grade` não tem lugar para ele.
-Mais grave: **a prosa de um registro de ensaio é INTENÇÃO e passa o portão 1** — o
-`quote_is_anchored` foi rodado contra texto literal da API do ClinicalTrials.gov e
-aprovou, porque a citação *é* literal. O portão de citação não distingue intenção de
-resultado; só este portão de tipo distingue.
-
-Por isso a checagem é aqui, no handler que ingere, e não numa frozenset que edita prompt:
-esta é a única que sobrevive a um adapter chegando por CLI, por handler novo ou por
-`Context.sources`.
-"""
+# `EVIDENCE_KINDS` foi REMOVIDO na Fase D. O portão continua existindo no mesmo lugar
+# (`fetch_source`, onde ingere) mas passou a CONSULTAR `sources_registry.yields_evidence`
+# em vez de comparar contra uma frozenset compilada.
+#
+# A pergunta não mudou: "isto pode virar claim?". Mudou quem responde. Uma allowlist de
+# duas APIs em código expressa uma decisão de POLÍTICA como se fosse um fato sobre o
+# mundo; a coluna expressa o CONTRATO — publica estudo com prosa citável verbatim e
+# desenho graduável na escala do foco.
+#
+# As medições do item 9 continuam válidas e continuam registradas no PLAN.md: elas dizem
+# que aquelas três fontes não devem produzir evidência NESTE foco, e é por isso que só o
+# PubMed nasce aprovado. O que elas não justificam é congelar a lista para sempre.
 
 
 class UnsupportedSourceKind(RuntimeError):
@@ -81,7 +73,7 @@ class UnsupportedSourceKind(RuntimeError):
 
 
 class Source(Protocol):
-    kind: SourceKind
+    kind: str
 
     async def search(self, spec: SearchSpec) -> list[str]:
         """Devolve identificadores externos, ordenados por relevância."""
