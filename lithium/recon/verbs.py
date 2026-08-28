@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -84,7 +85,7 @@ async def approve(store, queue, discovery_id: int, *, embedder=None) -> Decision
     """Você autorizou. O que acontece depende do TIPO.
 
     * `lead`   → o ARTIGO é enfileirado (não o texto), e a descoberta vira `queued`.
-    * `source` → `deferred`: o registro de fontes é da Fase D.
+    * `source` → uma PROPOSTA no registro de fontes, ainda NÃO ativa.
     * `observation` → nasce uma memória `source='recon'`, escopada ao foco da
       descoberta, e a descoberta vira `approved`.
 
@@ -101,17 +102,56 @@ async def approve(store, queue, discovery_id: int, *, embedder=None) -> Decision
 
     kind = row["kind"]
     if kind == "source":
-        # Sem registro de fontes até a Fase D. Recusa EXPLÍCITA, no idioma do
-        # `RECUSADO:` de `_focus_new` — marcar como aprovada e não fazer nada seria
-        # prometer o que não existe.
-        _claim(store, discovery_id, "deferred")
-        return Decision(discovery_id, kind, "deferred",
-                        "registro de fontes é da Fase D; guardada como pendente lá")
+        return _approve_source(store, row)
 
     if kind == "lead":
         return _approve_lead(store, queue, row)
 
     return await _approve_observation(store, row, embedder)
+
+
+def _approve_source(store, row) -> Decision:
+    """Registra a fonte como PROPOSTA — e não como fonte ativa.
+
+    Aprovar a descoberta significa "vale investigar esta fonte", não "colha dela a partir
+    de agora". São duas decisões, e juntá-las deixaria o batedor ativar por conta própria
+    um endpoint que ninguém revisou: uma fonte é rede e parsing, e a spec de busca ainda
+    não existe.
+
+    A escrita passa por `store.propose_source`, e a indireção não é estilo: a varredura de
+    AST do portão proíbe esse nome dentro de `lithium/recon/`, para que o código
+    capaz de atravessar a fronteira não tenha onde ser escrito. A primeira versão desta
+    função tinha o INSERT inline e o portão a reprovou — o que é a trava funcionando.
+
+    O slug vem do DOMÍNIO da URL, não do título: título é prosa de terceiro e viraria
+    chave primária.
+    """
+    from urllib.parse import urlparse
+
+    host = (urlparse(row["url"] or "").hostname or "").lower().removeprefix("www.")
+    slug = re.sub(r"[^a-z0-9]+", "-", host).strip("-") or f"proposta-{row['id']}"
+    antes = store.source_state(slug)
+
+    with store.tx():
+        store.propose_source(
+            slug,
+            (row["title"] or "")[:200] or f"proposta de #{row['id']}",
+            f"https://{host}" if host else "",
+            int(row["id"]),
+        )
+        _claim(store, int(row["id"]), "approved")
+
+    if antes is not None:
+        return Decision(int(row["id"]), "source", "approved",
+                        f"{slug} já {antes} no registro; nada a acrescentar")
+    # A mensagem NÃO nomeia o comando de CLI, e não é só para passar no portão: a camada
+    # de domínio embutir sintaxe de CLI é acoplamento na direção errada. Quem imprime os
+    # próximos passos é o CLI, que é onde os nomes dos comandos são verdade.
+    return Decision(
+        int(row["id"]), "source", "approved",
+        f"{slug} registrada como PROPOSTA — não ativa, não consultada, sem produzir "
+        f"evidência. Falta descrever como buscar nela e então ativá-la.",
+    )
 
 
 def _approve_lead(store, queue, row) -> Decision:
