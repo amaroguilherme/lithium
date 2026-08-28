@@ -1,0 +1,129 @@
+########################################################################
+# focuses/bipolar-tag/safety.toml
+#
+# SÓ O VOCABULÁRIO desce para o disco. O MAQUINÁRIO fica em código
+# (`matches`, `_boundary`, `_NEGATION`, `terms_for`) e é agnóstico a foco
+# — mas NÃO é agnóstico a IDIOMA: `_NEGATION` é regex PT+EN calibrada em
+# português, e a medição que a justifica (sobre prosa de síntese perde 9
+# de 14 alertas; `abrupt_discontinuation` se auto-anula por
+# `interromp\w*`) não vale para um safety.toml escrito só em inglês.
+# Isso é limite conhecido e declarado, não bug.
+#
+# `AMBIGUOUS_IN_USER_TEXT = {"lithium"}` NÃO vem para cá. Não é dado de
+# foco: é o NOME DO PROJETO colidindo com um fármaco ("vou rodar o
+# lithium no Kaggle"). Se descesse, um foco que não fale de lítio
+# DESLIGARIA a proteção contra o falso positivo mais previsível do
+# sistema.
+########################################################################
+
+schema_version = 1
+
+# `label` é pt-BR (vai para a anotação de colisão do chat); `forms`
+# mistura PT e EN (é o que casa contra evidência em inglês e usuário em
+# português). Semânticas diferentes, campos separados.
+
+[[concepts]]
+key = "lithium"
+label = "lítio"
+forms = ["lítio", "litio", "lithium", "carbonato de lítio", "lithium carbonate", "li2co3", "carbolitium"]
+properties = ["serum_monitoring", "narrow_window", "teratogenic", "renal"]
+
+[[concepts]]
+key = "valproate"
+label = "valproato"
+forms = ["valproato", "ácido valpróico", "acido valproico", "valproic acid", "divalproato", "divalproex", "valproate", "depakote", "depakene"]
+properties = ["serum_monitoring", "teratogenic", "hepatic"]
+
+[[concepts]]
+key = "carbamazepine"
+label = "carbamazepina"
+forms = ["carbamazepina", "carbamazepine", "tegretol", "oxcarbazepina", "oxcarbazepine"]
+properties = ["serum_monitoring", "enzyme_inducer", "teratogenic"]
+
+[[concepts]]
+key = "lamotrigine"
+label = "lamotrigina"
+forms = ["lamotrigina", "lamotrigine", "lamictal"]
+properties = ["rash_risk"]
+
+[[concepts]]
+key = "quetiapine"
+label = "quetiapina"
+forms = ["quetiapina", "quetiapine", "seroquel"]
+properties = ["metabolic"]
+
+[[concepts]]
+key = "olanzapine"
+label = "olanzapina"
+forms = ["olanzapina", "olanzapine", "zyprexa"]
+properties = ["metabolic"]
+
+[[concepts]]
+key = "benzodiazepine"
+label = "benzodiazepínico"
+forms = ["benzodiazepínico", "benzodiazepinico", "benzodiazepine", "clonazepam", "alprazolam", "diazepam", "lorazepam", "rivotril"]
+properties = ["dependence"]
+
+# Como uma restrição em linguagem natural aponta para um conceito sem
+# nomeá-lo. "evito fármacos com monitoramento sérico" não contém "lítio".
+[property_phrases]
+serum_monitoring = ["monitoramento sérico", "monitoramento serico", "nível sérico", "nivel serico", "exame de sangue", "coleta de sangue", "serum monitoring", "serum level"]
+teratogenic = ["teratogênico", "teratogenico", "gravidez", "gestação", "gestacao", "engravidar", "teratogenic", "pregnancy"]
+dependence = ["dependência", "dependencia", "vício", "vicio", "dependence"]
+metabolic = ["ganho de peso", "metabólico", "metabolico", "weight gain"]
+rash_risk = ["rash", "erupção", "erupcao", "stevens-johnson"]
+
+# INDIREÇÃO, não termos literais: `concepts = ["lithium"]` expande para
+# as `forms` do conceito na carga. Escrever as formas de novo aqui as
+# duplicaria em dois pontos do MESMO arquivo — divergem na primeira
+# edição. Uma regra pode usar `concepts`, `terms` (literais, para quem
+# não é conceito) ou os dois.
+
+[[rules]]
+key = "antidepressant_monotherapy"
+severity = "high"
+terms = ["antidepressivo", "antidepressant", "isrs", "ssri", "snri", "fluoxetina", "sertralina", "escitalopram", "paroxetina", "venlafaxina", "duloxetina", "bupropiona", "fluoxetine", "sertraline", "paroxetine", "venlafaxine", "duloxetine"]
+alert = "Antidepressivo em monoterapia no bipolar I carrega risco de virada maníaca e aceleração de ciclos. É a razão de existir desta pesquisa — toda menção precisa dizer se há estabilizador em associação."
+
+[[rules]]
+key = "lithium_serum_window"
+severity = "high"
+concepts = ["lithium"]
+alert = "Lítio tem janela terapêutica estreita: exige litemia periódica e função renal e tireoidiana. AINEs, IECA e diuréticos tiazídicos elevam o nível sérico."
+
+[[rules]]
+key = "abrupt_discontinuation"
+severity = "high"
+concepts = ["lithium"]
+co_terms = ["parar de tomar", "parar de usar", "interrupção abrupta", "interrupcao abrupta", "abruptamente", "de uma vez", "abrupt discontinuation", "abrupt cessation", "abrupt withdrawal", "abruptly discontinu", "suspensão abrupta", "suspensao abrupta"]
+alert = "Interrupção abrupta de lítio associa-se a mania de rebote — o risco não é o mesmo de uma retirada gradual."
+
+[[rules]]
+key = "valproate_teratogenicity"
+severity = "high"
+concepts = ["valproate"]
+alert = "Valproato é teratogênico e associado a déficit cognitivo na exposição intrauterina. Em pessoa com potencial de gestação isso muda a avaliação de risco-benefício inteira."
+
+[[rules]]
+key = "lamotrigine_titration"
+severity = "high"
+concepts = ["lamotrigine"]
+alert = "Lamotrigina exige titulação lenta pelo risco de rash grave (Stevens-Johnson). Valproato concomitante dobra o nível e obriga titulação ainda mais lenta."
+
+[[rules]]
+key = "carbamazepine_induction"
+severity = "medium"
+concepts = ["carbamazepine"]
+alert = "Carbamazepina é indutora enzimática potente: reduz o nível de contraceptivos hormonais, de outros psicotrópicos e do próprio metabólito ativo."
+
+[[rules]]
+key = "benzodiazepine_duration"
+severity = "medium"
+concepts = ["benzodiazepine"]
+alert = "Benzodiazepínico alivia ansiedade rápido e é o caminho de menor resistência no TAG — com tolerância, dependência e prejuízo cognitivo no uso prolongado."
+
+[[rules]]
+key = "antipsychotic_metabolic"
+severity = "medium"
+concepts = ["quetiapine", "olanzapine"]
+alert = "Antipsicótico de segunda geração: ganho de peso e alteração metabólica são o custo principal no uso prolongado."

@@ -1,0 +1,183 @@
+########################################################################
+# focuses/bipolar-tag/focus.toml
+#
+# TRANSCRIÇÃO, não recalibração. Cada bloco de prosa aqui é o texto que
+# hoje está hard-coded no `.md` correspondente, palavra por palavra — é
+# isso que faz o golden do prompt continuar valendo como baseline depois
+# da parametrização, e é isso que torna "transcrição" verificável em vez
+# de declarada. Recalibrar é um commit SEPARADO, com o diff do golden
+# mostrando exatamente o que mudou.
+#
+# Fonte da verdade do VOCABULÁRIO. O banco é fonte da verdade da
+# IDENTIDADE (focuses.id, focuses.scale_id) e do HISTÓRICO DE JULGAMENTO
+# (claim_directness). Os dois são disjuntos, com UMA exceção: `target`.
+# Aqui ele é o valor que `lithium focus new` ESCREVE na linha do banco.
+# Depois disso o BANCO vence — porque toda aresta em `claim_directness`
+# foi julgada contra o target que estava no banco no momento da escrita.
+# Editar `target` aqui depois de existir julgamento não reescreve nada:
+# muda o `judgment_hash`, e o `focus show` grita.
+########################################################################
+
+schema_version = 1
+slug   = "bipolar-tag"
+target = "bipolar I + comorbid GAD"
+
+# A forma longa, em minúscula e no meio de frase. Os prompts que a usam
+# no início de frase pedem `$target_prose_cap` — capitalizar é
+# renderização, não conteúdo, então mora no código.
+target_prose = "treatment options for bipolar I disorder with comorbid generalized anxiety disorder"
+
+# Quem lê a saída. Hard-coded em 4 prompts hoje ("psychiatrist"), e é
+# dado de foco: um foco de oncologia veterinária não é lido por um
+# psiquiatra.
+reader = "psychiatrist"
+
+# Aponta para `evidence_scales.slug`. A escala é CRIADA (com os 9 níveis
+# de grade e os 4 de directness vindos de types.py) se ainda não existir.
+# Se existir, é reusada como está — reescrever peso de escala viva
+# reescreveria julgamento histórico.
+scale = "clinical-evidence"
+
+# Prefixo de EMBEDDING para consulta de lição. Prosa, não slug: o slug
+# não tem vizinhança semântica. Hoje é `explore.DOMAIN_PREFIX`.
+retrieval_prefix = "bipolar I with comorbid generalized anxiety"
+
+# ───────────────────────────────────────────────── blocos de prosa por prompt
+#
+# Um campo por bloco contíguo de domínio POR PROMPT, e a duplicação
+# aparente é deliberada: os prompts têm trabalhos diferentes e um campo
+# único forçaria prosa que serve mal aos dois. Já aconteceu no desenho —
+# um `scarcity_rationale` só levava vocabulário de gerador de pergunta
+# para dentro do juiz de suficiência, que não escreve pergunta nenhuma.
+
+# extract_claims.md — o vínculo clínico e por que directness importa.
+extract_bind = """
+The clinical bind: standard GAD treatment is antidepressants, but antidepressant
+monotherapy in bipolar I risks manic switch and cycle acceleration. Direct evidence on
+this intersection is scarce, so the system must also reason from adjacent populations —
+which is why `directness` matters as much as study design."""
+
+# generate_questions.md — o mesmo vínculo, mas virado para a FORMA da
+# pergunta útil. É o prompt que decide o que vai ser buscado.
+question_bind = """
+The bind: first-line GAD treatment is antidepressants, but antidepressant monotherapy
+in bipolar I risks manic switch and cycle acceleration. So the useful question is never
+"does X treat anxiety" in isolation — it is always "does X treat anxiety *without*
+destabilising mood in bipolar I"."""
+
+# generate_questions.md — a escassez como ESTRUTURA, e a instrução de
+# explorá-la. Um foco com literatura direta farta precisa do argumento
+# inverso aqui.
+question_scarcity = """
+Direct evidence on this intersection barely exists, and not by accident: GAD trials
+exclude bipolar patients at enrolment, and bipolar trials treat anxiety as a secondary
+outcome. The system therefore has to reason across adjacent populations and discount
+for indirectness. Good questions exploit that structure instead of ignoring it."""
+
+# generate_speculation.md — a seção "## The problem" inteira.
+speculation_problem = """
+**Bipolar I disorder with comorbid generalized anxiety disorder.** First-line GAD
+treatment is antidepressants; antidepressant monotherapy in bipolar I risks manic
+switch and cycle acceleration. The field's answer has been to reach for whatever mood
+stabiliser also happens to be sedating. That is a workaround, not a solution."""
+
+# A pergunta gerativa. NÃO é enquadramento: em generate_speculation.md
+# ela É o prompt — tudo o mais é subordinado a ela. Um foco sem isto
+# deixa o gerador sem eixo e ele produz especulação fluente e fora de
+# escopo.
+mechanistic_question = "What decouples anxiolysis from mood destabilisation?"
+
+# judge_sufficiency.md — o limiar. Calibra o juiz a ACEITAR evidência
+# fraca porque a escassez é estrutural.
+sufficiency_scarcity = """
+This matters here more than it would elsewhere, because the scarcity is **structural**:
+GAD trials exclude bipolar patients, and bipolar trials treat anxiety as a secondary
+outcome. No amount of extra searching produces the head-to-head that does not exist. A
+bar that requires it refuses everything forever, and the reader gets nothing instead of
+getting an honest note with its limits named."""
+
+# judge_sufficiency.md — a definição de `addresses_question_directly`.
+# O foco É o critério aqui, não a moldura.
+sufficiency_population_rule = """
+Evidence about pure GAD does not answer a question about GAD comorbid with bipolar I:
+the population is the whole point of this project."""
+
+# verify_pattern.md — o par que DEFINE `population_scope_exceeded`.
+# Estava DUPLICADO em schemas.py (descrição de campo, que vai para a
+# gramática). Uma origem só.
+population_hierarchy = """
+rodent findings stated about humans, pure GAD findings stated about bipolar I with
+comorbid GAD"""
+
+# generate_speculation.md — a justificativa mecanística da VIA. Estava
+# TRIPLICADA: aqui, em `route_block()` (injetado como $routes NO MESMO
+# PROMPT, podendo contradizê-lo) e em schemas.py. `route_block()` fica
+# só com a parte AGNÓSTICA; a metade de domínio é esta.
+route_rationale = """
+Switch risk tracks the *rate* of monoaminergic rise, and route sets Tmax — a
+transdermal patch or subcutaneous depot flattens a curve the same molecule spikes when
+swallowed. So the same compound may be unusable orally and viable transdermally, and
+that is a real hypothesis."""
+
+# ────────────────────────────────────────────── critérios de falha fatal
+#
+# É o critério de `survives` em critique_speculation.md, não moldura. Os
+# dois itens AGNÓSTICOS (circularidade, "já testado e falhou") ficam no
+# prompt; só os de domínio vêm daqui. PLAN.md registra a regressão real
+# de 3/3 -> 0/3 especulações sobreviventes quando este bloco sai de
+# calibração — inclusive o guarda anti-super-rejeição da primeira
+# entrada, que é o que impede o portão de matar toda ideia não testada.
+fatal_criteria = [
+"""\
+- **The proposed mechanism itself would drive destabilisation.** Not "the hypothesis
+  doesn't prove it's safe" — that describes every untested idea. Fatal means the mode
+  of action *as described* increases dopaminergic drive, monoaminergic tone, or arousal,
+  so the mechanism works by doing the dangerous thing.""",
+"- **It reduces to antidepressant monotherapy** wearing different vocabulary.",
+"""\
+- **The intervention is contraindicated** in bipolar I, or interacts dangerously with
+  standard mood stabilisers.""",
+]
+
+# Declaração EXPLÍCITA. `safety = false` renderiza a AUSÊNCIA no bloco de
+# segurança; arquivo ausente sem esta chave é ERRO de carga.
+safety = "safety.toml"
+
+# ───────────────────────────────────────────────────────────── directness
+#
+# RESTRIÇÃO DURA, validada NA CARGA e não em runtime: os NOMES dos quatro
+# níveis são GLOBAIS. `claim_directness.directness` tem FK para
+# `directness_weight(directness)` e a gramática espelha isso com um
+# StrEnum de 4 membros. O perfil escolhe a PROSA, NUNCA o conjunto de
+# nomes — um 5º nível passaria por validação ingênua, entraria em
+# `scale_levels` (que não tem FK ali) e só explodiria na primeira
+# escrita, com o perfil já commitado.
+#
+# NÃO existe `weight` aqui. As duas portas para um peso de perfil estão
+# fechadas (escala viva ignora; escala nova é semeada de types.py para
+# que os DOIS eixos fechem), e um campo editável sem caminho de execução
+# é o formato mais nocivo possível.
+
+[directness]
+direct       = { prose = "bipolar I patients with comorbid GAD" }
+partial      = { prose = "bipolar I with anxiety as a secondary outcome, OR GAD without bipolar" }
+indirect     = { prose = "bipolar II, panic disorder, unipolar depression, mixed mood samples" }
+extrapolated = { prose = "mechanism, animal, in-vitro, or pure inference" }
+
+# ─────────────────────────────────────────────────────── riscos permanentes
+#
+# CHAVE AUSENTE É ERRO, não lista vazia. `pattern` vem JUNTO com o risco:
+# sem ele o teste de contrato itera a lista, não tem com o que casar, e
+# passa verde com os prompts já sem a menção. `must_not_match` é o
+# ANTI-CORPO obrigatório — sem ele `pattern = "risk"` casa em 14 de 14
+# prompts e cobre nada.
+
+[[standing_risks]]
+name    = "switch risk"
+pattern = 'manic[-\s]switch|switch risk|precipitate\s+mania'
+prose   = "antidepressant monotherapy in bipolar I carries manic-switch and cycle-acceleration risk"
+must_not_match = [
+  "Does the chain quietly switch between acute effects?",
+  "switch the comparator arm",
+]
+

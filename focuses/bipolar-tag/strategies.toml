@@ -1,0 +1,72 @@
+########################################################################
+# focuses/bipolar-tag/strategies.toml
+#
+# Transcrição de `pipeline/strategy.py`. `Strategy.sources` e
+# `Strategy.tags` NÃO são transcritos: `sources` está declarado morto no
+# próprio docstring, e `tags` é pior — grep em lithium/ e tests/ devolve
+# UMA ocorrência, a própria declaração, sem aviso de código morto e sem
+# teste. Transcrever um botão inerte para um arquivo que o usuário EDITA
+# À MÃO é o formato mais nocivo possível.
+########################################################################
+
+schema_version = 1
+
+[[strategies]]
+name = "intersecao_direta"
+expected_directness = "direct"     # validado contra os níveis DESTE foco
+priority = 0.95
+limit = 20
+rationale = "A interseção real. Raríssima e de altíssimo valor — uma única coorte aqui pesa mais que uma meta-análise em população adjacente."
+queries = [
+  '("bipolar disorder"[MeSH] OR "bipolar I") AND ("generalized anxiety disorder"[MeSH] OR "generalised anxiety")',
+  '"bipolar disorder" AND "comorbid anxiety" AND (treatment OR management)',
+  '"bipolar I disorder" AND "anxiety disorder" AND comorbidity AND therapy',
+]
+
+[[strategies]]
+name = "bipolar_ansiedade_secundaria"
+expected_directness = "partial"
+priority = 0.8
+rationale = "Ensaios em bipolar que mediram ansiedade como desfecho secundário. Corpo grande e subexplorado: o dado existe, só não está no título."
+queries = [
+  '"bipolar disorder" AND ("anxiety symptoms" OR "HAM-A" OR "anxiety severity") AND (randomized OR trial)',
+  '"bipolar disorder" AND "anxious distress" AND outcome',
+  '"bipolar I" AND quetiapine AND anxiety',
+]
+
+[[strategies]]
+name = "nao_antidepressivo_em_tag"
+expected_directness = "partial"
+priority = 0.85
+rationale = "Modalidades com dado em TAG que NÃO são antidepressivo. Quetiapina é o caso canônico: tem RCT em TAG e é estabilizador aprovado no TB-I — os dois lados do problema no mesmo fármaco."
+queries = [
+  '"generalized anxiety disorder" AND quetiapine AND randomized',
+  '"generalized anxiety disorder" AND pregabalin AND randomized',
+  '"generalized anxiety disorder" AND (buspirone OR hydroxyzine) AND randomized',
+  '"generalized anxiety disorder" AND lamotrigine',
+  '"generalized anxiety disorder" AND "second-generation antipsychotic"',
+]
+
+[[strategies]]
+name = "nao_farmacologico"
+expected_directness = "partial"
+priority = 0.75
+rationale = "Onde a resposta menos óbvia provavelmente está: sem risco de virada, e combinável com qualquer regime farmacológico."
+queries = [
+  '"bipolar disorder" AND ("cognitive behavioral therapy" OR "cognitive behavioural therapy") AND anxiety',
+  '"bipolar disorder" AND ("mindfulness" OR "acceptance and commitment therapy")',
+  '"bipolar disorder" AND "interpersonal and social rhythm therapy"',
+  '"generalized anxiety disorder" AND (exercise OR "physical activity") AND randomized',
+]
+
+[[strategies]]
+name = "risco_e_ancoras"
+expected_directness = "partial"
+priority = 0.9
+rationale = "O outro lado da pergunta: quanto risco o antidepressivo realmente traz no TB-I, e o que as diretrizes já resolveram. Diretriz é âncora de alto grade que evita reinventar julgamento clínico consolidado."
+queries = [
+  '"bipolar disorder" AND antidepressant AND ("manic switch" OR "treatment-emergent mania" OR "cycle acceleration")',
+  '"bipolar disorder" AND antidepressant AND monotherapy AND risk',
+  '"bipolar disorder" AND (guideline[pt] OR "practice guideline"[pt]) AND treatment',
+  "CANMAT AND bipolar AND guideline",
+]

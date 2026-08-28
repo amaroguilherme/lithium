@@ -1,0 +1,127 @@
+########################################################################
+# focuses/bipolar-tag/taxonomy.toml
+#
+# UNIFICA `mechanism.INTERVENTION_CLASSES` e as CHAVES de
+# `state.CLASS_KEYWORDS`. MEDIDO: hoje as duas são IDÊNTICAS (17 e 17,
+# diferença simétrica vazia) e NENHUM teste cruza as duas. São duas
+# fontes de verdade da mesma taxonomia que ainda não divergiram — um
+# taxonomy.toml que não unifique leva a divergência para o disco, onde é
+# mais fácil de introduzir e mais difícil de ver.
+#
+# A ORDEM É CONTEÚDO, não formatação: `taxonomy_block()` renderiza na
+# ordem literal e o docstring de mechanism.py diz que as entradas mais
+# distantes da prática padrão vêm no fim DE PROPÓSITO, para não
+# sugerirem menor importância. Se a carga passar por `set` ou ordenar por
+# chave em qualquer ponto, microbioma, TSPO e kappa sobem para o meio e o
+# docstring passa a mentir.
+########################################################################
+
+schema_version = 1
+
+mechanism_targets = [
+  # Neurotransmissão clássica, mas por alvo em vez de por fármaco
+  "GABAergic modulation",
+  "glutamatergic / NMDA / AMPA",
+  "serotonergic (non-reuptake mechanisms)",
+  "noradrenergic / alpha-2",
+  "dopaminergic partial agonism",
+  "histaminergic H1",
+  # Alvos menos explorados em transtorno do humor
+  "sigma-1 receptor",
+  "orexin / hypocretin",
+  "neurosteroid / allopregnanolone / GABA-A delta",
+  "endocannabinoid",
+  "oxytocin / vasopressin",
+  "opioid kappa antagonism",
+  "TSPO / translocator protein",
+  # Sistemas
+  "HPA axis / glucocorticoid signalling",
+  "neuroinflammation / microglial activation",
+  "oxidative stress / glutathione",
+  "mitochondrial bioenergetics",
+  "circadian / melatonergic / social rhythm",
+  "sleep architecture (REM / slow-wave)",
+  "vagal tone / autonomic balance",
+  "cortical excitability / E-I balance",
+  "microbiome-gut-brain axis",
+  "intracellular signalling (GSK-3, inositol, BDNF)",
+]
+
+routes = [
+  "oral",
+  "sublingual / buccal",
+  "intranasal",
+  "transdermal patch",
+  "subcutaneous depot / implant",
+  "long-acting injectable",
+  "inhaled",
+  "intravenous (in-clinic)",
+  "implanted device",
+  "wearable / external device",
+  "non-pharmacological procedure",
+  "behavioural / environmental",
+]
+
+# Uma entrada por classe: o RÓTULO (que vai para o prompt) e as KEYWORDS
+# (que decidem se a classe está `untouched`). Declarar classe sem keyword
+# é ERRO de carga: ela apareceria como intocada para sempre, porque nada
+# poderia tocá-la.
+
+# Farmacológico convencional
+[[intervention_classes]]
+label = "anticonvulsant mood stabiliser"
+keywords = ["lamotrigine", "valproate", "carbamazepine", "topiramate", "gabapentin", "pregabalin"]
+[[intervention_classes]]
+label = "lithium salt"
+keywords = ["lithium"]
+[[intervention_classes]]
+label = "atypical antipsychotic"
+keywords = ["quetiapine", "olanzapine", "risperidone", "aripiprazole", "lurasidone", "cariprazine", "ziprasidone"]
+[[intervention_classes]]
+label = "non-antidepressant anxiolytic"
+keywords = ["buspirone", "hydroxyzine", "benzodiazepine", "clonazepam", "lorazepam"]
+
+# Além da farmacopeia psiquiátrica
+[[intervention_classes]]
+label = "repurposed non-psychiatric drug"
+keywords = ["repurpos", "off-label", "minocycline", "celecoxib", "metformin", "propranolol"]
+[[intervention_classes]]
+label = "investigational compound (phase 1-2)"
+keywords = ["phase 1", "phase 2", "investigational", "first-in-human"]
+[[intervention_classes]]
+label = "nutraceutical / supplement"
+keywords = ["omega-3", "n-acetylcysteine", "nac ", "inositol", "magnesium", "vitamin"]
+[[intervention_classes]]
+label = "anti-inflammatory / immunomodulator"
+keywords = ["anti-inflammatory", "cytokine", "nsaid", "immunomodulat"]
+
+# Não-farmacológico
+[[intervention_classes]]
+label = "psychotherapy"
+keywords = ["cognitive behavio", "psychotherapy", "mindfulness", "acceptance and commitment", "interpersonal and social rhythm", "psychoeducation"]
+[[intervention_classes]]
+label = "neuromodulation (rTMS / tDCS / VNS / DBS)"
+keywords = ["rtms", "tdcs", "transcranial", "vagus", "deep brain", "electroconvuls"]
+[[intervention_classes]]
+label = "chronotherapy (bright light / dark therapy / sleep manipulation)"
+keywords = ["bright light", "light therapy", "dark therapy", "blue-block", "sleep deprivation", "chronotherap", "melatonin"]
+[[intervention_classes]]
+label = "metabolic / dietary (ketogenic, fasting)"
+keywords = ["ketogenic", "fasting", "diet", "microbiome", "probiotic"]
+[[intervention_classes]]
+label = "exercise / physiological training"
+keywords = ["exercise", "physical activity", "aerobic", "yoga"]
+[[intervention_classes]]
+label = "device or biofeedback (HRV, neurofeedback, breathing)"
+keywords = ["biofeedback", "neurofeedback", "heart rate variability", "breathing", "respiratory"]
+
+# Estratégias, não substâncias
+[[intervention_classes]]
+label = "combination or augmentation strategy"
+keywords = ["combination", "augmentation", "adjunct"]
+[[intervention_classes]]
+label = "sequencing or timing strategy (PRN, pulsed, chronomodulated dosing)"
+keywords = ["as-needed", "prn", "pulsed", "timing", "sequencing"]
+[[intervention_classes]]
+label = "deprescribing / simplification"
+keywords = ["deprescrib", "discontinu", "taper", "withdrawal"]
