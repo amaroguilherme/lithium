@@ -222,6 +222,15 @@ def _corpus_note(row) -> str:
     valer, e não tem escala para o modelo interpretar errado.
     """
     n_group = int(row["n_group"] or 0)
+    if str(row["group_key"] or "").startswith("id:"):
+        # O grupo é a claim, não a intervenção: `intervention` está VAZIO e o GROUP BY
+        # caiu para `id:<claim_id>`. MEDIDO no corpus real: 61 das 213 claims caem aqui,
+        # e 2 dos 12 slots da janela default eram ocupados por elas — cada uma lendo
+        # "não há outra claim verificada para esta intervenção", uma afirmação sobre uma
+        # intervenção que o campo não nomeia. A saída deste passo com `kind='pattern'` é
+        # gravada de forma durável em `research_lessons`, e este repo não reescreve
+        # julgamento passado: a lição derivada da premissa falsa fica.
+        return "(this claim records no intervention)"
     if n_group <= 1:
         return "(no other verified claim for this intervention in the corpus)"
     if int(row["n_pos"] or 0) and int(row["n_contra"] or 0):
@@ -441,6 +450,7 @@ class Reflector:
             # `MAX(cw.weight)` com colunas nuas: no SQLite as colunas nuas vêm da
             # linha do máximo (comportamento documentado para min/max agregado).
             "SELECT c.id, c.statement, c.grade, cd.directness, "
+            "       COALESCE(NULLIF(TRIM(c.intervention), ''), 'id:' || c.id) AS group_key, "
             "       COUNT(*) AS n_group, "
             "       SUM(CASE WHEN c.direction = 'positive' THEN 1 ELSE 0 END) AS n_pos, "
             "       SUM(CASE WHEN c.direction IN ('negative', 'null', 'no_effect') "

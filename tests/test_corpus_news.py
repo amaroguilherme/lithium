@@ -170,6 +170,31 @@ def test_spelling_variants_are_not_presented_as_separate_frontiers(store):
     assert "marcante" not in text and "notable" not in text.lower()
 
 
+def test_a_claim_with_no_intervention_is_not_described_as_an_intervention(store):
+    """A nota é FATO do corpus, e sobre claim sem intervenção o fato é outro.
+
+    O `GROUP BY` cai para `id:<claim_id>` quando `intervention` está vazio, então
+    `n_group` é 1 e a nota afirmava "não há outra claim verificada para ESTA
+    INTERVENÇÃO" sobre uma claim em que o campo não nomeia intervenção nenhuma.
+
+    MEDIDO no corpus real: 61 das 213 claims caem neste grupo, e 2 dos 12 slots da
+    janela default eram ocupados por elas (`id:30` e `id:33`, ambas sobre prevalência de
+    ansiedade comórbida — o assunto MAIS coberto do corpus). Importa porque a saída deste
+    passo com `kind='pattern'` é gravada de forma durável em `research_lessons`, e este
+    repo não reescreve julgamento passado.
+
+    MUTAÇÃO QUE MATA: apagar o ramo `if str(row["group_key"]).startswith("id:")` de
+    `_corpus_note` (a nota volta a cair no `n_group <= 1`).
+    """
+    _claim(store, "Uma coorte observou associação, sem braço de tratamento.", None)
+    text = _reflector(store).recent_activity().text
+
+    assert "this claim records no intervention" in text
+    assert "no other verified claim for this intervention" not in text, (
+        "o prompt afirmou ausência de outra claim PARA UMA INTERVENÇÃO que o campo não nomeia"
+    )
+
+
 # ═════════════ 2. o portão: um `pattern` exige contato novo com a literatura
 
 
