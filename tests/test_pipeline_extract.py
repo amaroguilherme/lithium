@@ -70,6 +70,9 @@ def _claim(**kw) -> dict:
         "direction": Direction.POSITIVE,
         "effect": "p<0.001",
         "grade": Grade.RCT,
+        # default JULGÁVEL: o caso normal. Os testes da escapatória passam False
+        # explicitamente, para que a ausência de aresta seja sempre uma escolha visível.
+        "directness_judgeable": True,
         "directness": Directness.PARTIAL,
         "confidence": 0.9,
         **kw,
@@ -375,3 +378,71 @@ async def test_a_source_with_a_new_chunk_still_extracts_the_new_one(store):
 
     again = await Extractor(store, llm, profile=PROFILE).extract_source(1)
     assert again.proposed == 1, "o chunk novo foi pulado junto com os antigos"
+
+
+# ═══════════════════ a escapatória de julgabilidade do directness
+
+
+async def test_an_unjudgeable_claim_gets_no_directness_edge(store):
+    """A extração podia dizer "não sei" — e agora pode.
+
+    Era o único caminho do sistema OBRIGADO a chutar. `DirectnessVerdict`, o juiz
+    independente do relens, tem três saídas, e o docstring dele explica por quê: gravar um
+    nível por falta de informação é PERMANENTE (a PK de `claim_directness` congela o valor
+    e o sweep pula quem já tem aresta) e INVISÍVEL (nenhum contador distingue "julgada" de
+    "defaultada"). `ExtractedClaim` tinha quatro níveis e nenhuma escapatória.
+
+    MEDIDO no corpus real: chamando o juiz independente sobre 12 claims que a extração já
+    havia julgado, ele respondeu NÃO-JULGÁVEL em 3 — onde a extração tinha gravado um
+    nível com peso. (Nas 9 restantes: concordância 6, autoavaliação inflou 2, incluindo um
+    `direct` -> `partial`, peso -0,40.)
+
+    MUTAÇÃO: em `Extractor._persist`, gravar a aresta incondicionalmente de novo.
+    """
+    llm = ScriptedLLM([_extraction(_claim(directness_judgeable=False))])
+    result = await Extractor(store, llm, profile=PROFILE).extract_source(1)
+
+    assert result.verified == 1, "a claim foi descartada; ela deve existir, só sem peso"
+    [cid] = [r["id"] for r in store.conn.execute("SELECT id FROM claims")]
+    assert store.conn.execute(
+        "SELECT COUNT(*) AS n FROM claim_directness WHERE claim_id = ?", (cid,)
+    ).fetchone()["n"] == 0, (
+        "a aresta foi gravada mesmo sem a extração saber quem foi estudado"
+    )
+    assert store.conn.execute(
+        "SELECT COUNT(*) AS n FROM claim_weight WHERE claim_id = ?", (cid,)
+    ).fetchone()["n"] == 0, "a claim sem julgamento carregou peso — deveria ser zero"
+
+
+async def test_a_judgeable_claim_still_gets_its_edge(store):
+    """A contrapartida, sem a qual a trava acima ficaria verde com a extração parando de
+    julgar QUALQUER coisa — o corpus inteiro sem peso passa nos dois testes se só o
+    primeiro existir.
+
+    MUTAÇÃO: inverter a condição em `_persist` (`if not claim.directness_judgeable`).
+    """
+    llm = ScriptedLLM([_extraction(_claim(directness_judgeable=True,
+                                          directness=Directness.PARTIAL))])
+    await Extractor(store, llm, profile=PROFILE).extract_source(1)
+
+    [row] = list(store.conn.execute("SELECT directness FROM claim_directness"))
+    assert row["directness"] == Directness.PARTIAL.value
+
+
+async def test_an_unjudged_claim_is_reachable_by_relens(store):
+    """A escapatória ENCAMINHA, não descarta.
+
+    Uma claim sem aresta cai em `claims_unjudged`, que é exatamente o conjunto que
+    `focus --relens` varre — então ela vai para o juiz independente, que a lê em
+    isolamento com o bloco de evidência inteiro. Sem esta propriedade a escapatória seria
+    um buraco: claim citável, sem peso, e sem caminho de volta.
+
+    MUTAÇÃO: fazer `_persist` gravar `out_of_scope=1` em vez de omitir a aresta — a claim
+    sai de `claims_unjudged` e o relens nunca mais a vê.
+    """
+    llm = ScriptedLLM([_extraction(_claim(directness_judgeable=False))])
+    await Extractor(store, llm, profile=PROFILE).extract_source(1)
+
+    assert store.counts()["claims_unjudged"] == 1, (
+        "a claim não julgada ficou fora de `claims_unjudged`: o relens não a alcança"
+    )

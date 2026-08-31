@@ -88,6 +88,7 @@ class FakeLLM:
                         "direction": "positive",
                         "effect": "",
                         "grade": "rct",
+                        "directness_judgeable": True,
                         "directness": "partial",
                         "confidence": 0.8,
                     }

@@ -67,6 +67,27 @@ class QueryPlan(Strict):
 
 
 class ExtractedClaim(Strict):
+    """Uma claim proposta pela extração.
+
+    `directness_judgeable` existe porque este caminho era o único do sistema OBRIGADO a
+    chutar. `DirectnessVerdict` — o juiz independente do relens — tem três saídas, e o
+    docstring dele explica por que: gravar um nível por falta de informação é
+    **permanente** (a PK de `claim_directness` congela o valor e o sweep pula quem já tem
+    aresta) e **invisível** (nenhum contador distingue "julgada" de "defaultada"). A
+    extração tinha quatro níveis e nenhuma escapatória, então produzia exatamente o
+    default contra o qual aquele docstring adverte.
+
+    MEDIDO no corpus real, chamando o juiz independente sobre uma amostra de 12 claims
+    que a extração já havia julgado: concordância 6/9, a autoavaliação inflou em 2/9
+    (inclusive um `direct` -> `partial`, peso -0,40), e em **3 de 12** o juiz respondeu
+    NÃO-JULGÁVEL onde a extração havia gravado um nível com peso. n é pequeno e a taxa de
+    concordância não é estável; a existência da lacuna não depende de n.
+
+    Sem aresta, a claim fica em `claims_unjudged` com peso ZERO — fail-closed — e o
+    `focus --relens` a revisita com o juiz independente e o bloco de evidência inteiro.
+    A escapatória não descarta a claim: encaminha para quem julga melhor.
+    """
+
     statement: str = Field(description="A alegação, em uma frase autocontida.")
     supporting_quote: str = Field(
         description="Trecho VERBATIM do texto fornecido que sustenta a alegação. "
@@ -79,6 +100,12 @@ class ExtractedClaim(Strict):
     direction: Direction
     effect: str = Field(description="Tamanho de efeito como reportado. '' se ausente.")
     grade: Grade
+    # ANTES de `directness`, e a ordem é o mecanismo: a decodificação é restrita por
+    # gramática e o modelo emite os campos NA ORDEM DO SCHEMA. Decidir "dá para saber?"
+    # depois de já ter escrito um nível é racionalizar a escolha; decidir antes é julgar.
+    directness_judgeable: bool = Field(
+        description="A evidência diz quem foi estudado? false quando não dá para saber."
+    )
     directness: Directness
     confidence: float = Field(ge=0.0, le=1.0)
 

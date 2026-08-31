@@ -274,9 +274,23 @@ class Extractor:
                 ),
             )
             claim_id = int(cur.fetchone()["id"])
-            conn.execute(
-                "INSERT INTO claim_directness(claim_id, focus_id, directness) "
-                "VALUES(?, ?, ?)",
-                (claim_id, int(focus["id"]), claim.directness.value),
-            )
+            if claim.directness_judgeable:
+                conn.execute(
+                    "INSERT INTO claim_directness(claim_id, focus_id, directness) "
+                    "VALUES(?, ?, ?)",
+                    (claim_id, int(focus["id"]), claim.directness.value),
+                )
+            # Sem aresta quando a extração não soube dizer quem foi estudado. A claim
+            # existe, é citável e recuperável; o que ela NÃO tem é peso — `claim_weight`
+            # a exclui pelo JOIN, que é fail-closed por construção.
+            #
+            # Isto NÃO a descarta: ela cai em `claims_unjudged`, e é exatamente esse o
+            # conjunto que `focus --relens` varre. Ou seja, a escapatória encaminha a
+            # claim do julgador barato (que a inventou no mesmo POST) para o juiz
+            # independente, que a lê em isolamento com o bloco de evidência inteiro.
+            #
+            # O contrário — gravar um nível por falta de informação — é permanente (a PK
+            # congela e o sweep pula quem já tem aresta) e invisível (nenhum contador
+            # distingue julgada de defaultada). O docstring de `DirectnessVerdict` já
+            # dizia isso; só o caminho do relens obedecia.
         return claim_id

@@ -51,6 +51,11 @@ pure inference
 Judge `directness` from the population actually studied, not from the paper's framing or
 its discussion section.
 
+`directness_judgeable` — set it to false when the passage does not say who was studied,
+and true when it does. When it is false, `directness` is ignored entirely, so do not try
+to pick a safe level: guessing the weakest one is not caution here, it is a wrong answer
+written down permanently.
+
 `confidence` — 0.0 to 1.0, how certain you are the claim is stated as you read it. Low
 sample size, hedged language, or an ambiguous passage should lower it. This is about
 your reading of the text, not about whether the finding is true.

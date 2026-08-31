@@ -245,6 +245,7 @@ def _claim(**kw) -> ExtractedClaim:
     base = dict(statement="s", supporting_quote="q", population="p",
                 intervention="", comparator="", outcome="o", direction="positive",
                 effect="", grade=Grade.COHORT.value,
+                directness_judgeable=True,
                 directness=Directness.DIRECT.value, confidence=0.9)
     return ExtractedClaim.model_validate({**base, **kw})
 
