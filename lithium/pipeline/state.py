@@ -5,8 +5,12 @@ na janela produz perguntas sobre o que estava no texto, não sobre o que **falta
 resumo agregado torna as lacunas visíveis — intervenção sem nenhuma claim, evidência
 que só existe em população indireta, direções contraditórias sobre o mesmo fármaco.
 
-Também é o mesmo resumo que a priorização consome, o que garante que a pergunta seja
-pontuada contra os números que a motivaram.
+Também é o mesmo resumo que a priorização consome — mas o TETO é só da janela. A tabela
+renderizada é cortada em `MAX_COVERAGE_ROWS` porque o prompt não cabe; `by_intervention`
+e `untouched` leem `coverage_all`, o corpus inteiro. Ler a lista cortada fazia o teto
+decidir o que o sistema acredita existir, e isso foi MEDIDO: 60 de 63 intervenções atrás
+do corte pontuavam novidade máxima sobre evidência já colhida, e 2 de 17 classes eram
+anunciadas ao gerador como "zero evidence gathered" com claim no banco.
 """
 
 from __future__ import annotations
@@ -54,7 +58,16 @@ MAX_COVERAGE_ROWS = 40
 
 `claims.intervention` é texto livre de um 12B: "quetiapine", "quetiapine XR" e
 "adjunctive quetiapine" são três linhas. A cardinalidade cresce com o corpus e **não
-converge**. Cada linha custa ~28 tokens, então sem teto `generate_speculation` estoura
+converge**.
+
+MEDIDO com 50 fontes: 103 grafias distintas, o teto engatado, 63 omitidas. E a atribuição
+de causa acima está incompleta — a fragmentação de grafia vale ~10 dos 103 valores; 47
+(46%) não são intervenção nenhuma (condição 21, exposição 19, marcador 7). Essa parcela
+CONVERGE quando o prompt define o campo; a que o parágrafo acima nomeia é a que não
+converge. O teto continua correto e necessário pelas duas.
+
+**O teto é da JANELA e mais nada.** `coverage_all` existe porque derivar `untouched` e
+`by_intervention` desta lista fazia o teto decidir o que o sistema acredita existir. Cada linha custa ~28 tokens, então sem teto `generate_speculation` estoura
 a janela de 8192 em ~128 intervenções distintas — e uma varredura completa produz
 150–400. O llama-server devolve 400, o cliente corretamente não repete 4xx, e a task
 vai para dead-letter: a trilha especulativa morria em silêncio conforme o corpus
@@ -91,16 +104,57 @@ class KnowledgeState:
     judgment for this focus" sobre claims que TÊM julgamento — e o gerador de perguntas
     raciocinava para sempre sobre uma ausência que não é a ausência descrita."""
 
+    coverage_all: list[Coverage] = field(default_factory=list)
+    """A cobertura INTEIRA, sem o teto. Nunca renderizada — só pontuação e classes.
+
+    O teto de `coverage` é da JANELA, não da verdade: `MAX_COVERAGE_ROWS` existe porque
+    o prompt não cabe, e nada mais. Derivar `untouched` e `by_intervention` da lista
+    cortada fazia o teto decidir o que o sistema ACREDITA existir: 2 de 17 classes eram
+    anunciadas como "zero evidence gathered" com claim no banco, e 60 de 63
+    intervenções atrás do corte pontuavam novidade MÁXIMA (0,65 — acima de 39 das 40
+    linhas visíveis) sobre evidência já colhida.
+    """
+
     focus: str | None = None
     coverage_omitted: int = 0
     """Intervenções cortadas pelo teto. Renderizado: um bloco truncado precisa
     declarar o que esconde, senão o modelo raciocina sobre um quadro parcial
     acreditando que é completo."""
 
+    n_no_intervention: int = 0
+    """Claims com peso cujo `intervention` é vazio — fora da tabela e de todo número dela.
+
+    Declarada no cabeçalho pela mesma razão de `n_unjudged` e `n_off_scale`: o `WHERE`
+    da consulta de cobertura as exclui, e o cabeçalho afirmava "213 weighted claims"
+    sobre uma tabela cuja coluna `n` soma 80. Era a ÚNICA das quatro exclusões sem
+    contador — exatamente o que o docstring de `coverage_omitted` proíbe em palavras.
+    """
+
     def by_intervention(self, name: str) -> Coverage:
+        """Resolve um alvo escrito pelo modelo contra a cobertura do CORPUS.
+
+        Duas propriedades, e as duas foram medidas como defeito antes de virarem regra:
+
+        1. **Varre `coverage_all`, não `coverage`.** O teto é da janela; a prioridade é
+           uma afirmação sobre o corpus. Com a lista cortada, 60 de 63 intervenções
+           escondidas pontuavam 0,65 — novidade máxima sobre evidência que existe.
+        2. **Igualdade antes de substring.** A varredura é por peso decrescente, então
+           `needle in c.intervention` fazia a linha PESADA sombrear a exata: `up+tau`
+           resolvia para `unified protocol for emotional disorders (up+tau)` (peso 3,40
+           contra 1,70 que a tabela mostra) e `anxiety disorder` para `any anxiety
+           disorders`. Eram 4 dos 40 nomes que `generate_questions.md` manda copiar
+           verbatim — e `priority` é gravada e nunca recalculada.
+
+        O substring FICA como segundo passo porque `render()` corta o nome em 38 chars
+        e o prompt manda copiar da tabela: sem ele, todo nome truncado vira alvo
+        desconhecido.
+        """
         needle = name.strip().lower()
-        for c in self.coverage:
-            if c.intervention == needle or needle in c.intervention:
+        for c in self.coverage_all:
+            if c.intervention == needle:
+                return c
+        for c in self.coverage_all:
+            if needle in c.intervention:
                 return c
         return Coverage(intervention=needle)
 
@@ -122,6 +176,11 @@ class KnowledgeState:
                 f" A further {self.n_off_scale} verified claim(s) were graded on a "
                 f"DIFFERENT evidence scale and cannot be weighed here — re-judging "
                 f"their population would not change that."
+            )
+        if self.n_no_intervention:
+            head += (
+                f" A further {self.n_no_intervention} weighted claim(s) record no "
+                f"intervention and are outside the table below."
             )
         lines: list[str] = [head, "", "## Evidence coverage by intervention"]
         if self.coverage:
@@ -220,30 +279,20 @@ def build_state(store: Store, profile: FocusProfile, *,
         "  JOIN scale_levels dw ON dw.scale_id = af.scale_id "
         "                      AND dw.axis = 'directness' AND dw.value = cd.directness "
         " WHERE c.intervention IS NOT NULL AND TRIM(c.intervention) <> '' "
-        " GROUP BY interv ORDER BY total DESC LIMIT ?",
-        (MAX_COVERAGE_ROWS + 1,),
+        " GROUP BY interv ORDER BY total DESC",
     ).fetchall()
 
-    omitted = 0
-    if len(rows) > MAX_COVERAGE_ROWS:
-        # Uma linha extra foi pedida só para saber se há corte; a contagem exata
-        # custaria um segundo COUNT(DISTINCT) e o número não precisa ser preciso.
-        #
-        # Sobre `claim_weight`, e não sobre `claims WHERE verified = 1`: as duas contagens
-        # tinham o mesmo universo antes do fail-closed e deixaram de ter. Medir universos
-        # diferentes renderiza "(+N intervenções não mostradas)" com um N inventado — e
-        # essa linha existe justamente para o modelo não raciocinar sobre um quadro
-        # parcial achando que é completo.
-        total_distinct = store.conn.execute(
-            "SELECT COUNT(DISTINCT LOWER(TRIM(cw.intervention))) AS n FROM claim_weight cw "
-            " WHERE cw.intervention IS NOT NULL AND TRIM(cw.intervention) <> ''"
-        ).fetchone()["n"]
-        omitted = max(0, total_distinct - MAX_COVERAGE_ROWS)
-        rows = rows[:MAX_COVERAGE_ROWS]
+    # SEM `LIMIT` na consulta, e o corte em Python. O teto é da JANELA, e a janela é
+    # `render()`; a pontuação e as classes precisam do corpus inteiro. O segundo
+    # `COUNT(DISTINCT)` que estimava `coverage_omitted` MORREU com isto: ele contava
+    # sobre `claim_weight` enquanto a tabela contava sobre este JOIN, e o próprio
+    # comentário registrava o risco de renderizar "(+N não mostradas)" com um N de outro
+    # universo. Agora N é o mesmo universo, por construção.
+    omitted = max(0, len(rows) - MAX_COVERAGE_ROWS)
 
     grade_by_rank = _level_by_rank(store, "grade")
     dir_by_rank = _level_by_rank(store, "directness")
-    coverage = [
+    coverage_all = [
         Coverage(
             intervention=r["interv"],
             n_claims=r["n"],
@@ -256,6 +305,7 @@ def build_state(store: Store, profile: FocusProfile, *,
         )
         for r in rows
     ]
+    coverage = coverage_all[:MAX_COVERAGE_ROWS]
 
     # Cobertura por CLASSE: a classe está tocada se alguma claim casar com uma de
     # suas palavras-chave. O que existe dentro da classe é problema do gerador.
@@ -264,7 +314,12 @@ def build_state(store: Store, profile: FocusProfile, *,
     # (`INTERVENTION_CLASSES` e as chaves de `CLASS_KEYWORDS`), idênticas por acidente
     # e sem nenhum teste que as cruzasse: duas fontes de verdade da mesma taxonomia que
     # ainda não tinham divergido.
-    seen = " ".join(c.intervention for c in coverage).lower()
+    # Do CORPUS, não das linhas mostradas. `coverage` já foi cortado em
+    # `MAX_COVERAGE_ROWS`, e ler `seen` dele fazia o teto vazar para um bloco que não
+    # declara truncar nada: MEDIDO no corpus real, 2 de 17 classes eram anunciadas ao
+    # gerador como "zero evidence gathered" tendo claim no banco, e as duas viravam 2
+    # das 8 queries de recuperação de lacuna.
+    seen = " ".join(c.intervention for c in coverage_all).lower()
     untouched = [
         klass.label
         for klass in profile.taxonomy.intervention_classes
@@ -299,8 +354,16 @@ def build_state(store: Store, profile: FocusProfile, *,
 
     counts = store.counts()
     focus = store.active_focus()
+    n_no_intervention = store.conn.execute(
+        "SELECT COUNT(*) AS n FROM claims c "
+        "  JOIN claim_weight cw ON cw.claim_id = c.id "
+        " WHERE c.intervention IS NULL OR TRIM(c.intervention) = ''"
+    ).fetchone()["n"]
+
     return KnowledgeState(
         coverage=coverage,
+        coverage_all=coverage_all,
+        n_no_intervention=n_no_intervention,
         untouched=untouched,
         conflicts=sorted(
             (c for c in coverage if c.conflict > 0.0),

@@ -35,6 +35,38 @@ log = logging.getLogger(__name__)
 _WS = re.compile(r"\s+")
 
 
+_NON_INTERVENTION = frozenset({"none", "n/a", "null", "nenhum", "nenhuma", "-"})
+"""O que um 12B escreve em `intervention` quando o certo era deixar vazio.
+
+`intervention` está em `required` da gramática, então o modelo é OBRIGADO a emitir a
+chave; quando não há intervenção ele devolve a palavra `none`. MEDIDO: 3 das 213 claims
+entraram assim, e no corpus real a linha `none` era a **segunda por peso** da tabela de
+cobertura (w=2,55, acima de `pramipexole`, que tem 10 claims) — o gerador de perguntas
+lia `none` como a segunda intervenção mais evidenciada do corpus. `"none" or None` é
+`"none"`, então o `or None` de `_persist` nunca pegou isso.
+
+Este portão é o único DETERMINÍSTICO do conserto: a prosa do prompt depende de um 12B
+obedecer, isto não.
+
+Deliberadamente NÃO é o `_EMPTY_MARKERS` de `explore.py`, e a diferença é o ponto: lá o
+campo é texto livre de CRÍTICA, onde `NA` não pode ser fármaco. Aqui `NA` é abreviação
+padrão de noradrenalina, e uma normalização é irreversível — grava NULL e o texto
+original some. Reusar o frozenset entre campos de espaços de valor diferentes é o que
+torna `na` perigoso, então ele fica fora deste. (`-` fica: nenhum agente se chama `-`.)
+"""
+
+
+def _intervention_or_none(value: str) -> str | None:
+    """`None` quando o campo não nomeia intervenção nenhuma. Ver `_NON_INTERVENTION`.
+
+    Normaliza só o MARCADOR, nunca o nome: `Acupuncture treatment` entra verbatim. O
+    texto bruto é a única medição de que o prompt está defeituoso, e `relens` mostra
+    esse texto ao juiz de directness, cujo veredito é gravado de forma durável.
+    """
+    text = (value or "").strip()
+    return None if text.lower() in _NON_INTERVENTION else (text or None)
+
+
 # `NoActiveFocus` mora em `lithium.focus.resolve` desde a Fase B — a extração deixou
 # de ser o único caminho que precisa dele (relens, plan_tick e explore_tick também
 # resolvem foco antes de gastar GPU). Reexportado aqui porque este era o import
@@ -231,7 +263,7 @@ class Extractor:
                     json.dumps([chunk_id]),
                     claim.statement,
                     claim.population or None,
-                    claim.intervention or None,
+                    _intervention_or_none(claim.intervention),
                     claim.comparator or None,
                     claim.outcome or None,
                     claim.direction.value,
