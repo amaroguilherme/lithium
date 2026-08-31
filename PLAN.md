@@ -685,7 +685,7 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | F2 | **O portão de `pattern`/`dead_end`** | ✅ |
 | F3 | **Recuperação não-constante, bound em memórias, contra-evidência** | ✅ |
 | F4 | **Notícia do corpus como fato + portão de contato com a literatura** | ✅ |
-| F5 | Reflexão de profundidade 1 | ⛔ bloqueada: exige uma semana de operação real |
+| F5 | Reflexão de profundidade 1 | ⏳ destravada: o relógio começa quando o daemon subir |
 | F6 | **Portão de citação + `seeking` persistido** (aresta hipótese→hipótese RECUSADA) | ✅ |
 | 13 | Enxugar a camada de prompts | ➡️ **absorvido pela Fase B** |
 | 14 | Objetivo configurável | ➡️ **resolvido e substituído pelas Fases A–D** |
@@ -694,6 +694,53 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | **C** | **Reconhecimento web** — ele pesquisa, te conta, você autoriza a memorizar | ✅ |
 | **D** | **Registro de fontes + adapter genérico** — pagou a dívida de fiação do item 9 | ✅ |
 | **E** | **Plano de métricas** — o que medir para acompanhar a evolução do modelo | ⏳ plano |
+
+### A ordem do pendente
+
+Por dependência, não por número. Três coisas decidem a sequência: o que **corrompe dado
+enquanto espera**, o que custa **espera** em vez de construção, e o que é **pré-requisito
+declarado** de outra coisa.
+
+**0. O campo `intervention`** — não é fase, é conserto de prompt, e vem antes de tudo porque
+é o único item que **piora com o tempo**. Observado no primeiro contato: um paper sem
+intervenção nenhuma teve `"generalized anxiety disorder"` gravado ali. `build_state` agrupa
+a cobertura por esse campo e `CLASS_KEYWORDS` mapeia intervenção para classe — cada dia de
+operação escreve mais lixo numa tabela que o item 10 vai relatar e que a geração de
+perguntas já lê. Consertar depois exige reprocessar o corpus; consertar agora não custa
+nada além do golden.
+
+**1. Item E — o plano de métricas.** Cedo, e a razão é estrutural: métrica de evolução exige
+série temporal, e série não se constrói retroativamente. Decidir o que registrar **depois**
+de uma semana de operação perde essa semana. É barato (é um plano) e determina o que
+instrumentar antes de a janela abrir. Já tem o primeiro ponto: 213 claims, 50 fontes,
+distribuições de `directness`, `grade`, direção e peso, e 6,16 tok/s medidos.
+
+**2. F5 — em paralelo com todo o resto, não na fila.** Ela é a única entrega cujo custo é
+*calendário*: precisa do daemon no ar acumulando reflexão real. Tratá-la como item
+sequencial é o erro que a manteve `⛔` por fases inteiras — e o bloqueio era falso, porque o
+job `reflect` nunca disparava. Com o agendador consertado, o certo é **ligar o daemon agora**
+e deixar o relógio correr enquanto os itens 11 e 10 são construídos.
+
+**3. Item 11 — goldset de segurança.** Auto-contido, determinístico, não precisa de corpus.
+Vem antes do 12 porque é **pré-requisito declarado** do gate da destilação: sem goldset não
+há como avaliar se o LoRA piorou algo.
+
+**4. Item 10 — `report` + scheduler completo.** Depende do passo 0 (relata a cobertura) e
+deixou de ser especulativo: antes, um relatório sobre corpus vazio não mostrava nada; agora
+há distribuição real para relatar. É também a primeira superfície visível de acompanhamento,
+o que o torna o consumidor natural das métricas do item E.
+
+**5. Item 12 — Fase 2, a destilação.** Último dos construtivos porque é o mais dependente:
+precisa de corpus de achados verificados (que só a operação produz) **e** do goldset do item
+11. Começar antes é treinar sobre pouco dado e não ter como medir o estrago.
+
+**6. Item 8 — `sync/publish` + Space.** Explicitamente último, e privado. A razão já estava
+registrada e não mudou: o banco agrega memória de `chat` e `recon` através de focos, então o
+export tem de excluí-la. Publicar algo que ainda muda de forma é a ordem errada.
+
+**Fora da fila:** `grade` virar aresta. Continua sem consumidor — existe um foco e uma
+escala. Entra quando aparecer um segundo foco com escada de evidência diferente, e
+`claims_off_scale` existe para tornar esse dia visível em vez de silencioso.
 
 As Fases A–D vêm de um plano aprovado, com decisões, custos e mutações por fase:
 `~/.claude/plans/estou-pensando-numa-forma-iridescent-melody.md`. A tese em uma linha: **um
