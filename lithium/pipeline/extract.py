@@ -95,6 +95,41 @@ class Extractor:
             (source_id,),
         ).fetchall()
 
+        # Chunk que JÁ produziu claim desta fonte é pulado. A extração não era
+        # idempotente, e o caminho até o dano é curto e comum: `recover_orphans` devolve
+        # à fila toda tarefa que ficou `running` quando o daemon morreu no meio, e uma
+        # extração leva ~2 min — um Ctrl-C no meio dela é operação normal, não acidente
+        # raro. Na volta, os chunks já processados eram extraídos de novo e as claims
+        # entravam DUPLICADAS.
+        #
+        # E duplicata aqui não é ruído cosmético: `hypothesis_scoreboard` SOMA o peso das
+        # claims ligadas, então a mesma evidência contada duas vezes empurra uma hipótese
+        # para cima do placar. OBSERVADO neste banco: a fonte 1 ficou com 6 claims, duas
+        # delas idênticas palavra por palavra.
+        #
+        # Por CHUNK e não por statement: o statement varia entre execuções (temperatura
+        # 0,2, não 0), então casar por texto pegaria só parte — de fato pegou 2 de 3. O
+        # chunk é determinístico: ou foi processado, ou não foi.
+        #
+        # Limitação aceita: um chunk que produziu ZERO claims não deixa registro e será
+        # reprocessado, gastando uma chamada para não gravar nada. Distinguir "não
+        # processado" de "processado, estéril" exigiria uma tabela nova, e o dano que ela
+        # evitaria é custo, não corrupção.
+        done_chunks = {
+            cid
+            for (raw,) in self.store.conn.execute(
+                "SELECT chunk_ids FROM claims WHERE source_id = ?", (source_id,)
+            )
+            for cid in json.loads(raw or "[]")
+        }
+        if done_chunks:
+            before = len(chunks)
+            chunks = [c for c in chunks if c["id"] not in done_chunks]
+            log.info(
+                "fonte %s: %d de %d chunk(s) já extraídos, pulando",
+                source_id, before - len(chunks), before,
+            )
+
         # Resolvido UMA vez, antes de qualquer escrita.
         focus = self.store.active_focus()
         if focus is None:

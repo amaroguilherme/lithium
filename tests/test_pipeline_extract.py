@@ -323,3 +323,55 @@ async def test_extraction_refuses_to_write_without_an_active_focus(store):
     assert store.conn.execute("SELECT COUNT(*) AS n FROM claims").fetchone()["n"] == 0, (
         "sobrou uma claim órfã: commitada, sem aresta e sem caminho de reparo"
     )
+
+
+async def test_re_extracting_a_source_does_not_duplicate_its_claims(store):
+    """A extração é idempotente por chunk.
+
+    OBSERVADO no primeiro contato real: a fonte 1 terminou com 6 claims, duas idênticas
+    palavra por palavra, porque a mesma fonte foi extraída duas vezes.
+
+    O caminho até isso é curto e comum, não um acidente raro: `recover_orphans` devolve à
+    fila toda tarefa que ficou `running` quando o daemon morreu no meio, e uma extração
+    real leva ~2 minutos — um Ctrl-C dentro dessa janela é operação normal. Na volta, os
+    chunks já processados eram extraídos de novo.
+
+    Duplicata aqui não é cosmética: `hypothesis_scoreboard` SOMA o peso das claims
+    ligadas, então a mesma evidência contada duas vezes empurra uma hipótese para cima do
+    placar.
+
+    MUTAÇÃO: remover o filtro de `done_chunks` de `extract_source`.
+    """
+    # UMA extração roteirizada. Se a segunda passada pedir outra, a lista acaba e o
+    # `ScriptedLLM` levanta — a forma mais dura de dizer "não reprocesse".
+    llm = ScriptedLLM([_extraction(_claim(statement="Quetiapina reduziu HAM-A."))])
+    first = await Extractor(store, llm, profile=PROFILE).extract_source(1)
+    assert first.verified == 1
+    n_after_first = store.conn.execute(
+        "SELECT COUNT(*) AS n FROM claims WHERE source_id = 1").fetchone()["n"]
+    assert n_after_first == 1
+
+    second = await Extractor(store, llm, profile=PROFILE).extract_source(1)
+
+    assert second.proposed == 0, "a fonte foi reprocessada em vez de pulada"
+    assert store.conn.execute(
+        "SELECT COUNT(*) AS n FROM claims WHERE source_id = 1"
+    ).fetchone()["n"] == n_after_first, (
+        "a re-extração duplicou claims; o placar de hipóteses somaria a mesma "
+        "evidência duas vezes"
+    )
+
+
+async def test_a_source_with_a_new_chunk_still_extracts_the_new_one(store):
+    """A contrapartida. Sem ela o guard poderia ser "nunca reprocessa nada" e o teste
+    acima ficaria verde medindo o bug oposto — uma fonte que ganhou chunk novo (refetch
+    com abstract mais completo) nunca mais seria extraída."""
+    llm = ScriptedLLM([
+        _extraction(_claim(statement="Primeira.")),
+        _extraction(_claim(statement="Segunda.")),
+    ])
+    await Extractor(store, llm, profile=PROFILE).extract_source(1)
+    store.add_chunk(source_id=1, ord=99, text="Texto novo que ainda não foi extraído.")
+
+    again = await Extractor(store, llm, profile=PROFILE).extract_source(1)
+    assert again.proposed == 1, "o chunk novo foi pulado junto com os antigos"
