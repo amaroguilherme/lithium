@@ -55,7 +55,8 @@ class Daemon:
         if missing:
             raise MissingModel("\n  ".join(["pré-requisitos ausentes:", *missing]))
 
-    async def run(self, *, stop: asyncio.Event | None = None) -> None:
+    async def run(self, *, stop: asyncio.Event | None = None,
+                  drain: bool = False, drain_max: int | None = None) -> None:
         self._check_models()
         stop = stop or asyncio.Event()
         cfg = self.config
@@ -138,6 +139,18 @@ class Daemon:
                 poll_interval_s=cfg.worker.poll_interval_s,
             )
             scheduler = Scheduler(store, queue, DEFAULT_JOBS)
+
+            if drain_max is not None or drain:
+                # `lithium run`: drena o que já está na fila e sai, sem scheduler.
+                # Antes isto era `Daemon.run(stop=<já setado>)`, e como `_worker` é
+                # `while not stop.is_set()` o runner saía sem reivindicar uma única
+                # tarefa. O comando imprimia "daemon no ar" e não fazia nada — e
+                # `--max-tasks` não chegava a lugar nenhum. `Runner.drain` já existia,
+                # com um docstring afirmando ser usada aqui.
+                queue.recover_orphans()
+                n = await runner.drain(max_tasks=drain_max)
+                log.info("drenadas %d tarefa(s)", n)
+                return
 
             log.info("daemon no ar: %d workers", cfg.worker.concurrency)
             async with asyncio.TaskGroup() as group:

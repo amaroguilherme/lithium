@@ -135,9 +135,7 @@ def run(
     cfg = load_config(config)
 
     async def _drain() -> None:
-        stop = asyncio.Event()
-        stop.set()  # nada de laço: o runner só recupera órfãs e sai
-        await Daemon(cfg, manage_servers=False).run(stop=stop)
+        await Daemon(cfg, manage_servers=False).run(drain=True, drain_max=max_tasks)
 
     asyncio.run(_drain())
 

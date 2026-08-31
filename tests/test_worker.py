@@ -420,3 +420,73 @@ def test_base_url_matches_client_expectation(tmp_path):
     assert LlamaServer(model_path=tmp_path / "m", port=9999).base_url == (
         "http://127.0.0.1:9999/v1"
     )
+
+
+# ═══════════════════════════════ `lithium run` drena de verdade
+
+
+def test_the_run_command_actually_drains_the_queue(tmp_path, monkeypatch):
+    """`lithium run` prometia "drena a fila uma vez e sai" e não drenava nada.
+
+    ENCONTRADO no primeiro contato real, não por leitura: enfileirei uma varredura, rodei
+    `lithium run --max-tasks 1`, e a tarefa continuou `pending`. O comando imprimia
+    "daemon no ar: 1 workers" e saía, sem erro e sem executar.
+
+    A causa: ele montava `stop = asyncio.Event(); stop.set()` e passava para
+    `Daemon.run(stop=...)`. Como `Runner._worker` é `while not stop.is_set()`, nenhum
+    worker reivindicava uma única tarefa. `Runner.drain(max_tasks=...)` já existia — com
+    um docstring afirmando ser usada aqui — e nunca era chamada, o que também fazia de
+    `--max-tasks` um botão que não fazia nada.
+
+    Este teste afirma sobre o COMPORTAMENTO (a fila esvazia), não sobre o fonte. Sem ele,
+    reverter a fiação deixa a suíte inteira verde — medido.
+
+    MUTAÇÃO: restaurar `stop.set()` e `Daemon.run(stop=stop)`.
+    """
+    from typer.testing import CliRunner
+
+    from lithium import cli
+    from lithium.config import load_config
+    from lithium.db import Store
+    from lithium.worker.queue import TaskQueue
+
+    # `Daemon.run` checa os pesos antes de qualquer coisa, e `--max-tasks` não muda isso.
+    # Arquivos vazios bastam: a checagem é `is_file()`, e `manage_servers=False` impede
+    # que alguém tente carregá-los.
+    gen = tmp_path / "gen.gguf"; gen.touch()
+    emb = tmp_path / "emb.gguf"; emb.touch()
+    cfgfile = tmp_path / "c.toml"
+    cfgfile.write_text(
+        f'data_dir = "{tmp_path / "d"}"\n'
+        f'[llm]\nmodel_path = "{gen}"\n'
+        f'[embedding]\nmodel_path = "{emb}"\n',
+        encoding="utf-8")
+    runner = CliRunner()
+    assert runner.invoke(cli.app, ["init", "-c", str(cfgfile)]).exit_code == 0
+
+    cfg = load_config(cfgfile)
+    store = Store(cfg.db_path, embedding_dim=cfg.embedding.dim)
+    queue = TaskQueue(store)
+    for i in range(3):
+        queue.enqueue("noop_probe", {"i": i}, dedup_key=f"probe:{i}")
+    assert store.counts()["tasks_pending"] == 3
+    store.close()
+
+    seen: list[int] = []
+
+    async def _probe(payload, ctx):
+        seen.append(payload["i"])
+
+    from lithium.worker import handlers as H
+    monkeypatch.setitem(H.HANDLERS, "noop_probe", _probe)
+
+    result = runner.invoke(cli.app, ["run", "-c", str(cfgfile), "--max-tasks", "2"])
+    assert result.exit_code == 0, result.output
+
+    assert len(seen) == 2, (
+        f"`--max-tasks 2` executou {len(seen)} tarefa(s): o comando não drena, ou o "
+        f"limite não chega ao Runner"
+    )
+    store = Store(cfg.db_path, embedding_dim=cfg.embedding.dim)
+    assert store.counts()["tasks_pending"] == 1, "a fila não foi drenada"
+    store.close()
