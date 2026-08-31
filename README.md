@@ -107,8 +107,11 @@ the task dies in the dead-letter queue, which is how the speculative track once 
 as the corpus grew.
 
 **Structured output is grammar-constrained** from Pydantic schemas, so the model cannot emit
-a value outside an enum rather than being asked politely not to. This also means anything in
-a schema docstring reaches the model: a channel no golden-render test can see.
+a value outside an enum rather than being asked politely not to. What the grammar carries is
+*structure only* — measured against this server, a `Field(description=...)` and a model
+docstring both reach the model as **nothing at all**. A schema annotation instructing "always
+answer PURPLE" changes the output by zero characters. Guidance that must reach the model goes
+in the prompt file; editing a docstring to steer behaviour is a silent no-op.
 
 **The evidence ladder is where "any subject" still leaks.** Its *weights* are a table and
 its *definitions* come from the focus, but the level *names* are a closed enum of clinical
