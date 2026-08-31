@@ -693,10 +693,86 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | **B** | **Trocar de foco** — perfil em disco + re-lente; absorveu o item 13 | ✅ |
 | **C** | **Reconhecimento web** — ele pesquisa, te conta, você autoriza a memorizar | ✅ |
 | **D** | **Registro de fontes + adapter genérico** — pagou a dívida de fiação do item 9 | ✅ |
+| **E** | **Plano de métricas** — o que medir para acompanhar a evolução do modelo | ⏳ plano |
 
 As Fases A–D vêm de um plano aprovado, com decisões, custos e mutações por fase:
 `~/.claude/plans/estou-pensando-numa-forma-iridescent-melody.md`. A tese em uma linha: **um
 banco, um corpus, uma memória — o foco é uma lente sobre esse cérebro, não uma partição dele.**
+
+---
+
+## Primeiro contato real — o que só apareceu rodando
+
+Até aqui o sistema tinha 999 testes e **zero linhas de dado real**. A primeira operação de
+verdade — uma frente de busca, 50 papers do PubMed — encontrou dois defeitos em menos de
+duas horas, e nenhum dos dois era alcançável por teste com dublê.
+
+### `lithium run` nunca drenou nada
+
+O comando documentado para execução manual montava `stop = asyncio.Event(); stop.set()` e
+passava para `Daemon.run(stop=...)`. Como `Runner._worker` é `while not stop.is_set()`,
+nenhum worker reivindicava uma única tarefa: ele imprimia *"daemon no ar: 1 workers"* e
+saía. Sem erro, sem log, sem tarefa executada.
+
+`Runner.drain(max_tasks=...)` **já existia**, com um docstring afirmando *"usada em testes e
+no `lithium run`"*. A afirmação era falsa desde que foi escrita, e `--max-tasks` era um
+parâmetro aceito que não chegava a lugar nenhum — o "botão que não configura nada" que este
+repo recusa em toda revisão de código, sobrevivendo no caminho de execução manual.
+
+Foi o primeiro obstáculo do primeiro contato: enfileirei uma varredura e nada aconteceu.
+
+### A extração não era idempotente, e o desligamento provou
+
+`recover_orphans` devolve à fila toda tarefa que ficou `running` quando o daemon morreu no
+meio. Uma extração real leva ~3 min. Nessa janela, qualquer interrupção — Ctrl-C, queda,
+sleep da máquina — fazia os chunks já processados serem extraídos DE NOVO na volta, com as
+claims entrando duplicadas.
+
+Duplicata aqui não é cosmética: `hypothesis_scoreboard` **soma** o peso das claims ligadas,
+então a mesma evidência contada duas vezes empurra uma hipótese para cima do placar.
+
+OBSERVADO duas vezes, e a segunda foi acidental e melhor que qualquer teste: **o computador
+desligou** no meio da extração da fonte 5, depois de gravar 1 claim de 12 chunks. Ao
+retomar, o log mostrou a correção operando contra uma órfã real —
+`fonte 5: 1 de 12 chunk(s) já extraídos, pulando` — e as 9 claims novas entraram sem
+duplicar a antiga.
+
+A guarda é por CHUNK e não por statement, e a razão foi medida: o statement varia entre
+execuções (temperatura 0,2, não 0), então casar por texto pegou 2 de 3 duplicatas reais. O
+chunk é determinístico.
+
+### O que o custo medido diz
+
+O modelo de custo do repo previa 6,21 tok/s de decode. Medido em operação: **6,68 tok/s**,
+7% de erro sobre uma estimativa derivada de três medições antigas — o modelo se sustenta.
+
+A unidade de custo é o **chunk, não a fonte**: a primeira extração levou 117s com 2 chunks,
+o ritmo estável ficou em ~3 min com fontes de 8 a 12 chunks. Claims por fonte variam de 1 a
+10. Qualquer métrica de custo do item E tem de normalizar por chunk.
+
+### Os dois portões discriminam, e de formas diferentes
+
+Nas primeiras 4 fontes o portão 1 aprovou 19 de 19, o que levantou a dúvida certa: ele mede
+alguma coisa, ou a busca da citação é frouxa? A fonte 5 respondeu — rejeitou 1 de 10. A
+citação não estava literalmente no chunk e a claim caiu ali, antes de custar uma chamada de
+verificação.
+
+O portão 2 morde mais e de forma desigual: 100%, 83%, 33%, 100%, 88% por fonte. Um juiz que
+lê caso a caso se comporta assim; um carimbo, não.
+
+### Um defeito NÃO corrigido, e por quê
+
+O campo `intervention` recebeu `"generalized anxiety disorder"` e `"GAD"` — a **condição**,
+não uma intervenção. O paper era uma coorte epidemiológica sobre mortalidade por suicídio,
+onde não há intervenção, e o extrator preencheu o campo com o que tinha à mão.
+
+Importa porque `build_state` agrupa a tabela de cobertura por `intervention` e
+`CLASS_KEYWORDS` mapeia intervenção para classe: condições ali dentro transformam a
+cobertura em ruído. O conserto certo é o prompt admitir ausência de intervenção.
+
+Ficou para depois da drenagem **de propósito**: mudar o prompt no meio faria as fontes
+restantes serem extraídas sob regras diferentes das primeiras, e um corpus inconsistente é
+pior que um corpus pequeno — a primeira série de métricas mediria duas coisas misturadas.
 
 ---
 
