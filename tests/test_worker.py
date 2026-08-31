@@ -480,6 +480,27 @@ def test_the_run_command_actually_drains_the_queue(tmp_path, monkeypatch):
     from lithium.worker import handlers as H
     monkeypatch.setitem(H.HANDLERS, "noop_probe", _probe)
 
+    # O daemon espera o servidor de embeddings ficar pronto ANTES de drenar, com timeout
+    # de 180 s. Sem este stub o teste passa quando há um llama-server no ar e trava por
+    # três minutos quando não há — dependência de estado ambiente, que é o defeito que
+    # este repo chama de teste não-hermético. Foi como eu o escrevi da primeira vez: verde
+    # na minha máquina porque o servidor estava carregado, e a suíte inteira saltou de
+    # 20 s para 200 s no primeiro `pytest` sem ele.
+    import lithium.daemon as D
+    from lithium.llm import LLMClient
+
+    async def _pronto_embed(embedder, timeout_s=180.0):
+        return None
+
+    async def _pronto_gen(self, *a, **k):
+        return None
+
+    # OS DOIS. `daemon.run` espera o servidor de geração (`llm.wait_healthy`, que levanta
+    # `LLMUnavailable`) E o de embeddings (`_wait_embedder`). Stubar só um deixa o teste
+    # travando nos 180 s do outro — foi o que aconteceu na primeira correção.
+    monkeypatch.setattr(D, "_wait_embedder", _pronto_embed)
+    monkeypatch.setattr(LLMClient, "wait_healthy", _pronto_gen)
+
     result = runner.invoke(cli.app, ["run", "-c", str(cfgfile), "--max-tasks", "2"])
     assert result.exit_code == 0, result.output
 
