@@ -385,3 +385,48 @@ def test_every_profile_placeholder_has_a_block(name: str) -> None:
     )
     if supplied:
         assert name in PROMPTS_WITH_PROFILE_BLOCKS
+
+
+# ═══════════════════════ o campo `intervention`: o prompt é o ÚNICO canal
+
+
+@pytest.mark.parametrize("profile", [PROD, ONCO], ids=["producao", "onco-vet"])
+def test_the_extraction_prompt_lets_the_model_leave_intervention_empty(profile) -> None:
+    """`intervention` está em `required` da gramática: o modelo é OBRIGADO a emitir a chave.
+
+    E `Field(description=...)` NÃO é um canal — o llama-server converte
+    `response_format.json_schema` em GBNF e descarta as anotações, então acrescentar
+    descrição em `schemas.py` é no-op silencioso (e não mexe em golden nenhum, o que faz
+    o conserto PARECER aplicado). O `.md` é o único texto que o modelo lê.
+
+    Antes disto o arquivo não dizia uma palavra sobre o campo: as duas únicas ocorrências
+    da palavra "intervention" estavam dentro da definição de `direction` ("`positive`
+    intervention helped"), que PRESSUPÕE que a intervenção existe, e a lista nominal dos
+    campos que aceitam `""` citava `comparator`, `effect`, `population` e deixava
+    `intervention` fora. Obrigado a responder uma pergunta sem escape, o modelo devolve o
+    substantivo mais próximo — no corpus, 66 de 152 valores preenchidos não são
+    intervenção.
+
+    MEDIDO contra o llama-server real (gemma-4-12b-it, temp 0,2, chunk 2 da fonte 1 — a
+    coorte epidemiológica que gravou as claims 2 e 3): com o prompt antigo,
+    `intervention='GAD'` em 3 de 3 amostras, byte a byte o que está no banco; com esta
+    linha, `''` em 3 de 3. CONTROLE (chunk 19, RCT de pramipexol): 7 de 7 claims mantêm
+    `pramipexole` em 2 de 2 amostras — a linha não superssuprime.
+
+    MUTAÇÃO QUE MATA: tirar `intervention` da linha dos campos que aceitam `""`. Ela
+    sobrevive à REGRAVAÇÃO do golden, que é o ponto: o golden é detector de mudança e o
+    procedimento documentado para ele é regravar, então ele não pode ser a trava
+    semântica. Esta linha É o conserto inteiro, então a trava cobre 100% dele.
+
+    RODA COM OS DOIS PERFIS porque a convenção tem de ser ESTÁTICA: movê-la para um bloco
+    do perfil a faria valer só para o foco que a escreveu.
+    """
+    rendered = re.sub(r"\s+", " ", _render_with_profile("extract_claims", profile))
+    empty_line = re.search(
+        r"`comparator`[^\n]*?use `\"\"` when the text does not say", rendered
+    )
+    assert empty_line, "a linha da convenção de vazio mudou de forma; reveja esta trava"
+    assert "`intervention`" in empty_line.group(0), (
+        "`intervention` está em `required` e ficou FORA da lista dos campos que aceitam "
+        "`\"\"` — o modelo é obrigado a inventar um valor"
+    )

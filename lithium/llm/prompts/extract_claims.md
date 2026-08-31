@@ -48,8 +48,8 @@ or its discussion section.
 Low sample size, hedged language, or an ambiguous passage should lower it. This is
 about your reading of the text, not about whether the finding is true.
 
-`comparator`, `effect`, `population` — use `""` when the text does not say. Never
-guess a number.
+`comparator`, `effect`, `population`, `intervention` — use `""` when the text does not
+say. Never guess a number.
 
 ## Source
 
