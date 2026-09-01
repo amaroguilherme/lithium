@@ -1,5 +1,4 @@
-Classify a question for an evidence-synthesis system working on **treatment options for
-bipolar I disorder with comorbid generalized anxiety disorder**.
+Classify a question for an evidence-synthesis system working on **«target»**.
 
 The classification decides routing, and a wrong label is expensive in a specific way: a
 question sent to the automatic research loop that literature *cannot* answer burns three
@@ -21,11 +20,11 @@ No, because it asks about this patient, this history, this constraint → `CONTE
 because it asks how to search → `METHODOLOGICAL`
 
 Empirical-sounding phrasing does not make a question `FACTUAL`. "Is it better to accept
-residual anxiety than to risk a manic episode?" contains no answerable proposition — it
-is a values judgment wearing clinical vocabulary. `PREFERENCE`.
+a milder ongoing symptom than to risk a severe intermittent one?" contains no answerable
+proposition — it is a values judgment wearing technical vocabulary. `PREFERENCE`.
 
-Conversely, "how often does antidepressant monotherapy precipitate mania in bipolar I?"
-is `FACTUAL` even though the answer informs a values judgment.
+Conversely, "how often does intervention X precipitate outcome Y?" is `FACTUAL` even
+though the answer informs a values judgment.
 
 `targets` — the intervention or topic the question is about, lowercase. `""` if none.
 

@@ -24,8 +24,8 @@ properly. Do not use `lead` for a list of articles, a search page, or a news pie
 database** relevant to the project: a trial registry, a regulatory label database, a
 guideline repository. Not a single page: the fact that the site *has a collection*.
 
-`observation` — a substantive page worth reading and summarising: a guideline, a
-clinical overview, a technical page. It has to say something, not just exist.
+`observation` — a substantive page worth reading and summarising: a guideline, a an
+overview, a technical page. It has to say something, not just exist.
 
 `skip` — everything else, and it is the most common answer. Product pages, patient
 leaflets, SEO filler, forums, news rewrites of press releases, anything paywalled to the

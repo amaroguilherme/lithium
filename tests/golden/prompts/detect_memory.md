@@ -8,8 +8,8 @@ You are not summarising the conversation. You are looking for a single fact abou
 - `preference` — how they want the work done, or what they value. "Prefiro entender o
 mecanismo antes de ver a evidência." - `constraint` — a hard limit. "Não considerar nada
 que exija monitoramento sérico." - `context` — a fact about the case the literature
-cannot supply. "Já tentou lamotrigina e teve rash." - `fact` — anything else durable and
-specific about them or the project's scope.
+cannot supply. "Já tentei a opção X e tive um efeito adverso." - `fact` — anything else
+durable and specific about them or the project's scope.
 
 ## Do not remember
 

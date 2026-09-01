@@ -16,11 +16,12 @@ actually supports it. Report only the steps that change.
 
 The claim must support **that specific step**, not the hypothesis in general. This is
 the failure mode to avoid: a claim confirming that sigma-1 modulates glutamate does not
-support a step asserting that this reduces anxiety in humans. Adjacent is not the same.
+support a step asserting the same effect in the target population. Adjacent is not the
+same.
 
-The population may differ — rodent evidence can anchor a mechanistic step about receptor
-pharmacology. It cannot anchor a step about clinical outcome in bipolar I. Match the
-*level of claim*, not just the topic.
+The population may differ — upstream or model-system evidence can anchor a mechanistic
+step. It cannot anchor a step about the outcome in the target population itself. Match
+the *level of claim*, not just the topic.
 
 `evidence` must be the PMID of a claim shown below. Do not write a PMID that is not in
 the list; an invented citation is worse than an honest assumption, because it inflates

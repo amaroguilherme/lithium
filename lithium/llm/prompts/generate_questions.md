@@ -33,9 +33,9 @@ record — check the list at the end of the state.
 
 | kind | meaning |
 |---|---|
-| `FACTUAL` | Answerable by finding the right studies. "Does pregabalin have RCT evidence in GAD?" |
-| `SYNTHESIS` | Needs weighing several studies against each other. "Given the switch-risk data, does quetiapine's GAD benefit outweigh its metabolic burden in bipolar I?" |
-| `PREFERENCE` | A trade-off between goals that evidence cannot settle. "Prioritise anxiety remission or mood stability?" |
+| `FACTUAL` | Answerable by finding the right studies. "Does intervention X have randomised evidence in this population?" |
+| `SYNTHESIS` | Needs weighing several studies against each other. "Given the risk data, does X's benefit outweigh its cost here?" |
+| `PREFERENCE` | A trade-off between goals that evidence cannot settle. "Prioritise the primary outcome or the tolerability profile?" |
 | `CONTEXT` | Depends on facts about this specific case that no paper contains. "What has already been tried and failed?" |
 | `METHODOLOGICAL` | About how to run the search itself. |
 

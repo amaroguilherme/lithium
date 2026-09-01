@@ -290,7 +290,10 @@ def test_golden_render(name: str) -> None:
 INJECTS = {
     "chat": {"constraint_notes", "evidence", "memories", "recon_notes", "safety",
              "standing_risks", "target_prose", "reader"},
-    "classify_question": {"question"},
+    # `target` entrou na Fase de desacoplamento: o prompt afirmava o domínio numa
+    # frase fixa, então um foco de outro assunto classificava perguntas sob um
+    # cabeçalho que anunciava psiquiatria.
+    "classify_question": {"question", "target"},
     "critique_speculation": {
         "chain", "falsifier", "fatal_criteria", "intervention_class", "known_risks",
         "mechanism_target", "missing_risk_line", "novelty", "statement",

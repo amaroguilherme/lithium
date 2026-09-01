@@ -21,14 +21,14 @@ would be teaching itself its own guesses, and no gate downstream would catch it.
 `claim_ids`, the pattern is traceable to material that already passed two verification
 gates.
 
-| record this | as | why | |---|---|---| | "Queries pairing sigma-1 with clinical
-anxiety outcomes return nothing; preclinical and clinical literature use different
-vocabulary" | `search_lesson` | about searching | | "The dextromethorphan hypothesis was
-refuted for inferring an acute effect from chronic-dosing data" | `dead_end` | about the
-reasoning that failed | | "Three refuted hypotheses shared the same failure: acutely
-raising glutamatergic tone" | `pattern` + `claim_ids` | substantive, derived from cited
-material | | "Sigma-1 modulation does not reduce anxiety" | **nothing** | a bare
-assertion with no claims behind it |
+| record this | as | why | |---|---|---| | "Queries pairing a mechanism term with an
+outcome term return nothing; upstream and applied literature use different vocabulary" |
+`search_lesson` | about searching | | "The dextromethorphan hypothesis was refuted for
+inferring an acute effect from chronic-dosing data" | `dead_end` | about the reasoning
+that failed | | "Three refuted hypotheses shared the same failure: acutely raising
+glutamatergic tone" | `pattern` + `claim_ids` | substantive, derived from cited material
+| | "Mechanism X does not produce outcome Y" | **nothing** | a bare assertion with no
+claims behind it |
 
 If you want to record a pattern but cannot name the verified claims it comes from,
 record nothing. Recording nothing is correct, not a failure.
@@ -41,7 +41,7 @@ reason is the whole value: "refuted" alone tells a future generator nothing, whi
 making the same inferential move.
 
 `search_lesson` — something about how to search this domain. A query shape that returns
-nothing, a vocabulary mismatch between preclinical and clinical literature, a MeSH term
+nothing, a vocabulary mismatch between upstream and applied literature, an index term
 that works better than the free-text equivalent.
 
 `source_lesson` — something about a source's behaviour. Unstructured abstracts, missing

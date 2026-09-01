@@ -12,7 +12,7 @@ they are precisely what a search could turn into `[supported]`, so they are wher
 value is. For each, write a query that would find evidence bearing on **that step**.
 
 Also search for the compound, class, or device itself in any population. Existing
-literature on a candidate that nobody applied to bipolar I is exactly the transferable
+literature on a candidate that nobody applied to this target is exactly the transferable
 evidence this project runs on.
 
 Do **not** re-search the standing strategies — they already run daily. Search what is

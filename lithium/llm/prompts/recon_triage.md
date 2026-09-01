@@ -24,7 +24,7 @@ database** relevant to the project: a trial registry, a regulatory label databas
 guideline repository. Not a single page: the fact that the site *has a collection*.
 
 `observation` — a substantive page worth reading and summarising: a guideline, a
-clinical overview, a technical page. It has to say something, not just exist.
+an overview, a technical page. It has to say something, not just exist.
 
 `skip` — everything else, and it is the most common answer. Product pages, patient
 leaflets, SEO filler, forums, news rewrites of press releases, anything paywalled to

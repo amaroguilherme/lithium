@@ -31,7 +31,7 @@ Reach for:
 - **drugs approved for something else entirely** whose mechanism happens to fit
 - **compounds in phase 1-2 for other indications**
 - **non-pharmacological interventions** that act on the same target: neuromodulation,
-  chronotherapy, metabolic, autonomic, device-based
+  timing-based, metabolic, physiological, device-based
 - **timing and sequencing** as the intervention itself, rather than the molecule
 - **the inverse question** — what makes the standard option harmful here, and can that
   specific property be subtracted while keeping the benefit?
@@ -55,7 +55,7 @@ does alone.
 $route_rationale
 
 And routes reach past molecules entirely: implanted and wearable devices, closed-loop
-neuromodulation, phototherapy hardware, biofeedback. A device that acts on the target
+stimulation hardware, measurement-driven feedback. A device that acts on the target
 counts as an intervention here, and its `intervention_class` says so.
 
 Speculation grounded in a plausible mechanism is welcome even with zero human data.
@@ -65,7 +65,7 @@ Speculation without a mechanism is not.
 
 **1. The chain must be explicit and honestly marked.**
 
-Break the reasoning into steps, from mechanism to clinical outcome. For each step, set
+Break the reasoning into steps, from mechanism to observed outcome. For each step, set
 `supported: true` **only** if you can name a real PMID/NCT/DOI. Otherwise `supported:
 false` and leave `evidence` empty.
 

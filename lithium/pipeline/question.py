@@ -103,6 +103,17 @@ def cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(a @ b) / denom if denom else 0.0
 
 
+def _target(store) -> str:
+    """O alvo do foco ativo, ou um marcador honesto quando não há foco.
+
+    Sem foco a classificação ainda é possível — a distinção FACTUAL/PREFERENCE não depende
+    do domínio —, então isto degrada em vez de levantar. O que não pode acontecer é o
+    prompt afirmar um domínio que não é o ativo.
+    """
+    focus = store.active_focus()
+    return (focus["target"] if focus else "an unspecified research target")
+
+
 class QuestionEngine:
     def __init__(
         self,
@@ -183,7 +194,13 @@ class QuestionEngine:
         """Pergunta manual do usuário. Classificada, mas com prioridade máxima —
         se você parou para digitar, é porque quer a resposta."""
         classification = await self.llm.structured(
-            [{"role": "user", "content": render("classify_question", question=text)}],
+            # `target` do BANCO. O prompt afirmava o domínio numa frase fixa
+            # ("bipolar I disorder with comorbid GAD"), então um foco de outro assunto
+            # teria as próprias perguntas classificadas por um prompt que anuncia
+            # psiquiatria — a mesma mentira que `scaffold_pending` impede no perfil TOML,
+            # sobrevivendo no prompt.
+            [{"role": "user", "content": render(
+                "classify_question", question=text, target=_target(self.store))}],
             QuestionClassification,
             max_tokens=512,
             label="classify_question",
