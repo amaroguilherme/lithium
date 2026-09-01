@@ -1,0 +1,114 @@
+########################################################################
+# eval/goldset.toml — perguntas de resposta VERIFICÁVEL.
+#
+# Item 11. Dois dos três critérios do gate do LoRA (item 12) vêm daqui:
+# acurácia e fidelidade de citação. O terceiro (zero regressão de
+# segurança) está em `safety_probes.toml`.
+#
+# ─────────────────────── O QUE ESTE ARQUIVO NÃO TESTA
+#
+# Correção CLÍNICA. Nenhum caso aqui pergunta se um tratamento funciona.
+# Eu não sou a pessoa que pode escrever esse gabarito, e escrevê-lo do
+# corpus que o próprio sistema construiu mediria se ele concorda consigo
+# mesmo. O README já diz que a saída é para revisão por especialista; o
+# goldset clínico é trabalho dele, não meu.
+#
+# ─────────────────────── O QUE ELE TESTA, E A ÂNCORA
+#
+# DISCIPLINA DE RECUPERAÇÃO E CITAÇÃO: o sistema encontra o que existe,
+# admite o que não existe, e nunca cita identificador que não tenha.
+#
+# A âncora é `sources` — PMID, título e `design` vêm do
+# `PublicationTypeList` do NCBI, resolvidos antes de qualquer modelo
+# falar. NÃO é `claims`, que o modelo produziu. Nenhum caso melhora se os
+# portões afrouxarem: um portão frouxo cria claim, não cria PMID.
+#
+# ─────────────────────── PRECONDIÇÃO, E POR QUE ELA EXISTE
+#
+# Todo caso declara o que o corpus precisa conter (ou não conter) para
+# ele significar algo, e o executor CONFERE antes de pontuar. Um corpus
+# que cresce pode transformar um controle negativo em pergunta
+# respondível — e aí o caso passaria a medir o contrário do que diz.
+#
+# Precondição falha => o caso é PULADO E ANUNCIADO, nunca contado como
+# acerto. É a lição do `build_state`: um agregado que silenciosamente
+# deixa de contar o que diz contar é pior que agregado nenhum.
+#
+# ─────────────────────── FORMATO
+#
+#   id              identificador estável
+#   question        o que se pergunta ao sistema
+#   expect          "answerable" | "unanswerable"
+#   why             por que este caso importa
+#   [cases.requires]
+#     title_contains / text_contains   substring, minúsculas
+#     design                            desenho indexado pelo NCBI
+#     min_count / max_count             quantos sources têm de casar
+#   must_cite       PMIDs que a resposta TEM de citar (opcional)
+########################################################################
+
+schema_version = 1
+focus = "bipolar-tag"
+
+
+# ─────────────────────── presença: achar o que existe
+
+[[cases]]
+id = "rct_indexado_existe"
+question = "Is there randomised trial evidence about pramipexole in the corpus?"
+expect = "answerable"
+why = """O desenho vem do `PublicationTypeList` do NCBI, não do modelo: se o sistema \
+responder que não há ensaio randomizado, é falha de RECUPERAÇÃO, e nenhum afrouxamento de \
+portão a esconde."""
+must_cite = ["40455248"]
+[cases.requires]
+design = "rct"
+title_contains = "pramipexole"
+min_count = 1
+
+[[cases]]
+id = "revisao_sistematica_existe"
+question = "Does the corpus contain any systematic review or meta-analysis?"
+expect = "answerable"
+why = """O topo da escada de evidência. Um sistema que não acha a própria meta-análise \
+não está recuperando — está gerando."""
+[cases.requires]
+design = "meta_analysis"
+min_count = 1
+
+
+# ─────────────────────── ausência: admitir o que não existe
+#
+# O lado que mais importa. Um modelo destilado que fabrica é indistinguível
+# de um bom nas perguntas de presença — a diferença aparece aqui.
+
+[[cases]]
+id = "ausente_ketamina"
+question = "What does the corpus say about ketamine for this target?"
+expect = "unanswerable"
+why = """CONTROLE NEGATIVO. Zero ocorrências em título e em chunk, verificado. A resposta \
+certa é "não há nada no corpus". Qualquer PMID citado aqui é fabricação, e fabricar é \
+exatamente o que a destilação pode piorar sem piorar nenhuma outra métrica."""
+[cases.requires]
+text_contains = "ketamine"
+max_count = 0
+
+[[cases]]
+id = "ausente_psilocibina"
+question = "Is there evidence about psilocybin in the corpus?"
+expect = "unanswerable"
+why = "Segundo controle negativo, com vocabulário de outra classe. Zero ocorrências."
+[cases.requires]
+text_contains = "psilocybin"
+max_count = 0
+
+[[cases]]
+id = "ausente_vortioxetina"
+question = "Does the corpus contain trials of vortioxetine?"
+expect = "unanswerable"
+why = """Terceiro controle negativo, e o mais tentador dos três: é um antidepressivo, \
+então está no espaço semântico que a busca vetorial recupera. A recuperação vai trazer \
+material ADJACENTE, e o sistema tem de dizer que não é sobre isto."""
+[cases.requires]
+text_contains = "vortioxetine"
+max_count = 0
