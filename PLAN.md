@@ -677,7 +677,7 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | 7.5 | **Notificação** — sem ela, "ele faz a pergunta" não tem valor prático | ✅ |
 | 8 | `sync/publish` + Space — **privado**, e o export exclui memória de `chat`/`recon` | ⏳ último |
 | 9 | Demais adapters — **RECUSADOS por medição**; entregou 4 bugs vivos | ✅ |
-| 10 | `hypothesis` + `report` + scheduler completo | ⏳ |
+| 10 | `report` semanal + scheduler completo (`hypothesis` = `explore --show`) | ✅ |
 | 11 | `safety/` + goldset + safety probes | ✅ `eval/*.toml` |
 | 12 | Fase 2 — dataset, QLoRA Kaggle, adapter GGUF, gate | ⏳ |
 | F0 | **Instrumentação + os dois tetos estourados** | ✅ |
