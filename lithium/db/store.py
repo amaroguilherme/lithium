@@ -262,6 +262,7 @@ class Store:
         #      verdadeiro só em banco de teste. Mesmo tratamento de `hypotheses` na Fase A:
         #      rebuild se VAZIA, limitação registrada se populada.
         self._rebuild_empty_legacy_sources(conn)
+        self._rebuild_extraction_runs_for_unknown(conn)
         # 2. Cria tabelas novas e RECRIA todas as views. A ordem de declaração dentro do
         #    arquivo não importa para a criação (MEDIDO: `CREATE VIEW v AS SELECT * FROM
         #    nao_existe` SUCEDE e só falha no SELECT). O que importa é que `meta` está no
@@ -609,6 +610,46 @@ class Store:
             self._migrate_indexes(self.conn)
         return ids
 
+    def _rebuild_extraction_runs_for_unknown(self, conn: sqlite3.Connection) -> None:
+        """Reconstrói `extraction_runs` quando os contadores de chunk são `NOT NULL`.
+
+        A tabela nasceu com `chunks_annihilated INTEGER NOT NULL DEFAULT 0`, e isso
+        impedia gravar DESCONHECIDO. A distinção importa: uma corrida retro-encaixada de
+        log não tem as rejeições individuais, então não dá para saber quais chunks
+        propuseram e perderam. Com `NOT NULL`, o retro-encaixe gravava 0 aniquilados e
+        `chunks_seen` estéreis — e o primeiro relatório afirmou **137 chunks estéreis**
+        num corpus que tem 76.
+
+        Dropa em vez de `ALTER`: o SQLite não afrouxa `NOT NULL` sem rebuild, e o
+        conteúdo é re-derivável — só entra aqui medição de primeira mão (que será
+        regravada na próxima extração) ou retro-encaixe de log (que é de segunda mão por
+        definição). Com medição de primeira mão presente, a limitação é REGISTRADA em vez
+        de a linha ser perdida.
+        """
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='extraction_runs'"
+        ).fetchone()
+        if row is None or "chunks_annihilated INTEGER NOT NULL" not in (row["sql"] or ""):
+            return
+        n = conn.execute(
+            "SELECT COUNT(*) AS n FROM extraction_runs WHERE origin = 'run'"
+        ).fetchone()["n"]
+        if n:
+            already = conn.execute(
+                "SELECT 1 FROM meta WHERE key = 'extraction_runs_notnull'").fetchone()
+            conn.execute(
+                "INSERT INTO meta(key, value) VALUES('extraction_runs_notnull','legacy') "
+                "ON CONFLICT(key) DO NOTHING")
+            if already is None:
+                log.warning(
+                    "`extraction_runs` tem %d corrida(s) de primeira mão e a forma antiga "
+                    "(NOT NULL): retro-encaixes de log nela reportam 0 aniquilados e "
+                    "todos os chunks como estéreis, o que é FALSO. Corridas novas estão "
+                    "corretas.", n)
+            return
+        log.info("reconstruindo `extraction_runs`: chunk desconhecido passa a ser NULL")
+        conn.execute("DROP TABLE extraction_runs")
+
     def _rebuild_empty_legacy_sources(self, conn: sqlite3.Connection) -> None:
         """Dropa `sources` quando ela está na forma legada E vazia.
 
@@ -762,9 +803,13 @@ class Store:
                 "  (source_id, focus_id, proposed, anchored, verified, chunks_seen,"
                 "   chunks_annihilated, chunks_sterile, origin) "
                 "VALUES(?,?,?,?,?,?,?,?,?) RETURNING id",
+                # Os dois contadores de chunk só têm sentido quando as rejeições
+                # individuais existem. Num retro-encaixe de log elas não existem, e
+                # derivá-los daria um número FALSO com cara de medição.
                 (int(result.source_id), focus_id, result.proposed, result.anchored,
-                 result.verified, result.chunks_seen, result.chunks_annihilated,
-                 result.chunks_sterile, origin),
+                 result.verified, result.chunks_seen,
+                 result.chunks_annihilated if origin == "run" else None,
+                 result.chunks_sterile if origin == "run" else None, origin),
             )
             run_id = int(cur.fetchone()["id"])
             for r in result.rejections:

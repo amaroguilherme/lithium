@@ -674,8 +674,13 @@ CREATE TABLE IF NOT EXISTS extraction_runs (
     -- Propôs e perdeu tudo (o paper certo, a citação ruim) vs não propôs nada (o paper
     -- errado). Ações OPOSTAS — apertar o extrator vs trocar a frente de busca — e hoje
     -- as duas são a mesma ausência de linha em 76 dos 160 chunks.
-    chunks_annihilated INTEGER NOT NULL DEFAULT 0,
-    chunks_sterile     INTEGER NOT NULL DEFAULT 0,
+    -- NULL = DESCONHECIDO, e a distinção é necessária: uma corrida retro-encaixada de
+    -- log (`origin='log'`) não tem as rejeições individuais, então não dá para saber
+    -- quais chunks propuseram e perderam. Gravar 0 ali afirmaria "nenhum aniquilado", e
+    -- gravar `chunks_seen` em estéreis afirmaria que a fonte inteira foi estéril —
+    -- MEDIDO: o primeiro relatório disse 137 estéreis onde o corpus tem 76.
+    chunks_annihilated INTEGER,
+    chunks_sterile     INTEGER,
     -- 'run' = medido de primeira mão. 'log' = retro-encaixado de um arquivo de log, e
     -- portanto de segunda mão. Nunca misturar os dois numa média sem dizer.
     origin        TEXT NOT NULL DEFAULT 'run' CHECK (origin IN ('run', 'log')),

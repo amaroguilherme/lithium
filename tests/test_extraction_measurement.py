@@ -154,3 +154,40 @@ async def test_the_handler_persists_the_run_not_only_a_log_line(store, tmp_path)
     )
     assert store.conn.execute(
         "SELECT COUNT(*) AS n FROM extraction_rejections").fetchone()["n"] == 1
+
+
+def test_a_backfilled_run_does_not_invent_chunk_counts(store):
+    """O DEFEITO QUE O PRIMEIRO RELATÓRIO EXPÔS.
+
+    Uma corrida retro-encaixada de log não tem as rejeições individuais, então não se sabe
+    quais chunks propuseram e perderam. As colunas nasceram `NOT NULL DEFAULT 0`, o que
+    IMPEDIA gravar desconhecido: o retro-encaixe gravava 0 aniquilados e todos os chunks
+    como estéreis, e o relatório afirmou **137 estéreis** num corpus que tem 76.
+
+    É a mesma classe do defeito do `build_state` — um agregado que não conta o que diz
+    contar — só que desta vez criada aqui, e revelada pelo consumidor novo.
+
+    MUTAÇÃO: gravar os contadores derivados mesmo quando `origin='log'`.
+    """
+    store.record_extraction(_result(), focus_id=1, origin="log")
+    linha = store.conn.execute(
+        "SELECT chunks_annihilated, chunks_sterile FROM extraction_runs").fetchone()
+    assert linha["chunks_annihilated"] is None and linha["chunks_sterile"] is None, (
+        "um retro-encaixe gravou contagem de chunk que ele não podia saber"
+    )
+
+
+def test_a_first_hand_run_still_records_its_chunk_counts(store):
+    """A contrapartida: sem ela, `record_extraction` poderia gravar NULL sempre e o teste
+    acima ficaria verde medindo o bug oposto.
+
+    MUTAÇÃO: gravar NULL nos dois contadores independentemente de `origin`.
+    """
+    r = _result(proposed=2, anchored=1, verified=1, chunks_seen=3)
+    r.chunks_yielding.add(1)
+    r.rejections.append(Rejection(chunk_id=2, gate="anchor", reason="x"))
+    store.record_extraction(r, focus_id=1)
+
+    linha = store.conn.execute(
+        "SELECT chunks_annihilated, chunks_sterile FROM extraction_runs").fetchone()
+    assert linha["chunks_annihilated"] == 1 and linha["chunks_sterile"] == 1
