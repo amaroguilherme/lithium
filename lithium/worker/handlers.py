@@ -360,6 +360,9 @@ async def reflect_tick(payload: dict[str, Any], ctx: Context) -> None:
                           profile=active_profile(ctx.store, ctx.config.focuses_dir)[1],
                           n_ctx=ctx.config.llm.n_ctx)
     lessons = await reflector.reflect(max_lessons=payload.get("max_lessons", 3))
+    # O TIQUE VIRA LINHA. Antes ele só logava, e `reinserted` — o modelo reescrevendo a
+    # lição que a PESSOA retirou — não tinha onde ser contado. Ver METRICS.md, MF6.
+    ctx.store.record_reflect_tick(_focus_id(ctx.store), [x.text for x in lessons])
     for lesson in lessons:
         log.info("  [%s] %s", lesson.kind, lesson.text)
     # AO FIM, não ao início: avançar a marca antes de as lições serem escritas fecharia

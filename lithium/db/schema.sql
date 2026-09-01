@@ -651,6 +651,56 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 
 
+-- Uma linha por tique de reflexão. Ver METRICS.md, MF6.
+--
+-- O tique não deixava rastro: o handler logava as lições e chamava
+-- `mark_literature_seen`. Quantas foram PROPOSTAS, quantas eram repetição do que já
+-- existia, e — o que importa — quantas reinseriram texto que a PESSOA havia retirado,
+-- nada disso sobrevivia ao processo.
+--
+-- `reinserted` é a assinatura mais direta de delírio que este plano captura: o modelo
+-- reescrevendo a lição que o humano negou. Só é calculável porque `memories.retired_at`
+-- existe — sem ela, `active = 0` não diz quem desativou nem quando.
+CREATE TABLE IF NOT EXISTS reflect_ticks (
+    id          INTEGER PRIMARY KEY,
+    focus_id    INTEGER REFERENCES focuses(id),
+    proposed    INTEGER NOT NULL,
+    written     INTEGER NOT NULL,
+    reinserted  INTEGER NOT NULL DEFAULT 0,
+    ran_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- ─────────────────────────────────────────── medição do juiz de suficiência
+
+-- Uma linha por RODADA do loop de auto-resposta. Ver METRICS.md, MF5.
+--
+-- O veredito do juiz não era gravado em lugar nenhum: `answer.py` só fazia
+-- `UPDATE questions SET status`, e `questions.rounds` é um contador. Quantos artigos
+-- distintos havia, se o juiz aprovou, e se o piso determinístico SEGUROU onde ele
+-- aprovou — tudo existia por alguns milissegundos e sumia.
+--
+-- Essa última coluna é a métrica: `judge_sufficient = 1 AND floor_ok = 0` é o juiz
+-- aprovando onde o `COUNT(DISTINCT article_key)` segurou. Os dois lados vêm de universos
+-- diferentes e só um deles é modelo — é isso que faz de MF5 a única métrica do plano com
+-- poder de VETO sobre a leitura de autonomia.
+--
+-- Append-only: uma rodada é um EVENTO, e reescrevê-la apagaria a série que ela existe
+-- para formar.
+CREATE TABLE IF NOT EXISTS answer_rounds (
+    id                INTEGER PRIMARY KEY,
+    question_id       INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    round             INTEGER NOT NULL,
+    n_hits            INTEGER NOT NULL,          -- claims recuperadas
+    n_articles        INTEGER NOT NULL,          -- artigos DISTINTOS entre elas
+    judge_sufficient  INTEGER NOT NULL CHECK (judge_sufficient IN (0, 1)),
+    floor_ok          INTEGER NOT NULL CHECK (floor_ok IN (0, 1)),
+    -- NULL quando o juiz não bloqueou. Quando bloqueou, qual dos campos do veredito.
+    blocked_reason    TEXT,
+    created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_rounds_question ON answer_rounds(question_id);
+
 -- ─────────────────────────────────────────────── medição dos portões de extração
 
 -- O NÃO de cada portão, que antes não existia em lugar nenhum.
@@ -824,6 +874,9 @@ CREATE TABLE IF NOT EXISTS memories (
     -- `normalize_memory_text`), NUNCA em SQL: `SELECT lower('LIÇÃO')` devolve
     -- 'liÇÃo' — o `lower()` do SQLite e o `COLLATE NOCASE` são ASCII-only, e as
     -- lições deste sistema são em português.
+    -- Ver `Store._ADDED_COLUMNS`: a retirada é um EVENTO e não reconstrói.
+    retired_at TEXT,
+    retired_by TEXT,
     text_key   TEXT,
     -- NULL = global. Memória sobre a PESSOA atravessa focos (é sobre ela, e ela não
     -- muda quando a lente muda). Uma observação lida na web sob `bipolar-tag` é

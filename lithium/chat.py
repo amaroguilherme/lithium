@@ -558,7 +558,11 @@ class ChatEngine:
     def forget(self, memory_id: int) -> bool:
         """Desativa em vez de apagar — o histórico de o que foi lembrado importa."""
         cur = self.store.conn.execute(
-            "UPDATE memories SET active = 0 WHERE id = ? AND active = 1", (memory_id,)
+            # `retired_by` distingue os DOIS caminhos humanos, e a distinção é a âncora
+            # de MF6: nenhum código do sistema escreve aqui.
+            "UPDATE memories SET active = 0, retired_by = 'human_chat', "
+            "  retired_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') "
+            " WHERE id = ? AND active = 1", (memory_id,)
         )
         return cur.rowcount > 0
 

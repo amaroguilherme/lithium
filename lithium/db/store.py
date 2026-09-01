@@ -376,6 +376,14 @@ class Store:
         # retroativamente nem mostrar ao revisor o trecho exato em que a claim se apoia —
         # `chunk_ids` aponta para o chunk inteiro, não para a frase. NÃO tem backfill:
         # cada extração que roda sem esta coluna perde a evidência para sempre.
+        # Quando e por quem uma lição foi retirada. Ver METRICS.md, MF6: a âncora dessa
+        # métrica é que quem retira é a PESSOA — `memories --forget` e `/esquecer` são os
+        # únicos escritores, e o humano não é o sistema. Sem isto, `active = 0` diz que
+        # saiu e não diz quando nem por quê, então "o modelo reinseriu a lição que a
+        # pessoa negou" — a assinatura mais direta de delírio que o plano captura — não
+        # tem como ser medida. NÃO reconstrói: a retirada é um evento.
+        ("memories", "retired_at", "TEXT"),
+        ("memories", "retired_by", "TEXT"),
         ("claims", "supporting_quote", "TEXT"),
         ("questions", "targets", "TEXT"),
         ("hypotheses", "tier", "TEXT NOT NULL DEFAULT 'evidence'"),
@@ -784,6 +792,31 @@ class Store:
         if row is None:
             return None
         return "ativa" if row["approved_at"] else "proposta"
+
+    def record_reflect_tick(self, focus_id: int | None, texts: list[str]) -> int:
+        """Persiste um tique de reflexão e conta quantas lições REINSERIRAM texto retirado.
+
+        A reinserção é o sinal: `memories.retired_by` só é escrito por
+        `lithium memories --forget` e por `/esquecer`, os dois caminhos HUMANOS. Uma
+        lição nova cujo `text_key` casa uma retirada é o modelo reescrevendo o que a
+        pessoa negou — ver METRICS.md, MF6.
+
+        Casa por `text_key` (normalizado), não por texto cru: reinserir com outra
+        pontuação continua sendo reinserir.
+        """
+        chaves = [normalize_memory_text(x) for x in texts]
+        reinseridas = 0
+        if chaves:
+            marks = ",".join("?" * len(chaves))
+            reinseridas = int(self.conn.execute(
+                f"SELECT COUNT(DISTINCT text_key) AS n FROM memories "
+                f" WHERE text_key IN ({marks}) AND retired_at IS NOT NULL",
+                tuple(chaves)).fetchone()["n"])
+        cur = self.conn.execute(
+            "INSERT INTO reflect_ticks(focus_id, proposed, written, reinserted) "
+            "VALUES(?,?,?,?) RETURNING id",
+            (focus_id, len(texts), len(texts), reinseridas))
+        return int(cur.fetchone()["id"])
 
     def record_extraction(self, result: Any, focus_id: int | None = None,
                           origin: str = "run") -> int:

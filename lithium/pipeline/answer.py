@@ -272,6 +272,26 @@ class Answerer:
             )
             raise
 
+    def _record_round(self, row, hits, n_articles: int, verdict) -> None:
+        """Uma linha por rodada, append-only. Nunca levanta.
+
+        Instrumentação que derruba o loop que ela mede é pior que instrumentação nenhuma:
+        a resposta é o produto, a medição é sobre o produto. Por isso o `except` largo —
+        e é a mesma escolha que `UsageSink.record` já fazia.
+        """
+        try:
+            self.store.conn.execute(
+                "INSERT INTO answer_rounds(question_id, round, n_hits, n_articles, "
+                "  judge_sufficient, floor_ok, blocked_reason) VALUES(?,?,?,?,?,?,?)",
+                (int(row["id"]), int(row["rounds"]) + 1, len(hits), n_articles,
+                 int(verdict is not None and _is_sufficient(verdict)),
+                 int(n_articles >= MIN_CITATIONS),
+                 str(verdict.blocked_reason) if verdict is not None
+                 and verdict.blocked_reason is not None else None),
+            )
+        except Exception:  # noqa: BLE001
+            log.debug("registro da rodada falhou", exc_info=True)
+
     async def _round(self, row) -> RoundResult:
         question_id, question = int(row["id"]), row["text"]
         hits = await Retriever(self.store, self.embedder).search_claims(
@@ -295,6 +315,13 @@ class Answerer:
         verdict = await self._judge(question, hits)
         self._bump(question_id, fingerprint, verdict)
 
+        # A RODADA VIRA LINHA AQUI, antes de QUALQUER desvio — inclusive o de juiz
+        # indisponível. Na primeira versão eu a registrava depois, e o ramo `verdict is
+        # None` retornava antes: uma semana em que o juiz falhou em 30% das rodadas
+        # apareceria como uma semana com 30% menos rodadas, que é a leitura errada.
+        n_articles = distinct_articles(hits, self.store)
+        self._record_round(row, hits, n_articles, verdict)
+
         if verdict is None:
             self.store.conn.execute(
                 "UPDATE questions SET status = 'OPEN' WHERE id = ?", (question_id,)
@@ -304,7 +331,6 @@ class Answerer:
         # ARTIGOS distintos, não claims. Duas claims do mesmo paper — ou duas linhas de
         # `sources` que são o mesmo artigo em fontes diferentes — satisfariam o piso com
         # uma fonte só, que é exatamente o que "duas citações independentes" nega.
-        n_articles = distinct_articles(hits, self.store)
         if _is_sufficient(verdict) and n_articles >= MIN_CITATIONS:
             return await self._answer(question_id, question, hits, verdict)
         if _is_sufficient(verdict):

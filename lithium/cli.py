@@ -794,7 +794,9 @@ def memories(
 
     if forget is not None:
         cur = store.conn.execute(
-            "UPDATE memories SET active = 0 WHERE id = ? AND active = 1", (forget,)
+            "UPDATE memories SET active = 0, retired_by = 'human_cli', "
+            "  retired_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') "
+            " WHERE id = ? AND active = 1", (forget,)
         )
         console.print("[green]✓ esquecida[/green]" if cur.rowcount
                       else "[yellow]id não encontrado ou já inativa[/yellow]")
