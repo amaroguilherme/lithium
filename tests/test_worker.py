@@ -511,3 +511,51 @@ def test_the_run_command_actually_drains_the_queue(tmp_path, monkeypatch):
     store = Store(cfg.db_path, embedding_dim=cfg.embedding.dim)
     assert store.counts()["tasks_pending"] == 1, "a fila não foi drenada"
     store.close()
+
+
+def test_external_servers_does_not_require_local_weights(tmp_path, monkeypatch):
+    """Com `--external-servers`, os GGUF podem estar em OUTRA máquina.
+
+    `_check_models` era chamado incondicionalmente, então o daemon exigia 9 GB de peso
+    local para conversar com um llama-server remoto que já os tem carregados — o que
+    tornava a opção inútil para o caso que ela mais serve: rodar a inferência numa máquina
+    com GPU dedicada e deixar só o daemon aqui.
+
+    O cliente sempre foi agnóstico a host (`base_url` num httpx); quem bloqueava era esta
+    checagem.
+
+    MUTAÇÃO: voltar `self._check_models()` para fora do `if self.manage_servers`.
+    """
+    from lithium.config import load_config
+    from lithium.daemon import Daemon
+    from lithium.llm import LLMClient
+
+    cfgfile = tmp_path / "c.toml"
+    # `model_path` aponta para arquivos que NÃO existem: é o cenário remoto.
+    cfgfile.write_text(
+        f'data_dir = "{tmp_path / "d"}"\n'
+        f'[llm]\nmodel_path = "{tmp_path / "nao-existe.gguf"}"\n'
+        f'base_url = "http://10.0.0.7:8080/v1"\n'
+        f'[embedding]\nmodel_path = "{tmp_path / "tambem-nao.gguf"}"\n'
+        f'base_url = "http://10.0.0.7:8081/v1"\n',
+        encoding="utf-8")
+    cfg = load_config(cfgfile)
+
+    import lithium.daemon as D
+
+    async def _pronto_embed(embedder, timeout_s=180.0):
+        return None
+
+    async def _pronto_gen(self, *a, **k):
+        return None
+
+    monkeypatch.setattr(D, "_wait_embedder", _pronto_embed)
+    monkeypatch.setattr(LLMClient, "wait_healthy", _pronto_gen)
+
+    import asyncio
+    asyncio.run(Daemon(cfg, manage_servers=False).run(drain=True, drain_max=0))
+
+    # gerenciar os servidores AQUI continua exigindo os pesos: a contrapartida, sem a
+    # qual o guard poderia sumir de vez e este teste ficaria verde medindo o bug oposto.
+    with pytest.raises(D.MissingModel):
+        asyncio.run(Daemon(cfg, manage_servers=True).run(drain=True, drain_max=0))

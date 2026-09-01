@@ -41,6 +41,17 @@ class Daemon:
     porque recarregar 8 GB a cada reinício do daemon custa um minuto)."""
 
     def _check_models(self) -> None:
+        """Os GGUF precisam existir AQUI — e só quando é este processo que os carrega.
+
+        Chamado incondicionalmente, este check tornava `--external-servers` inútil para o
+        caso que ele mais serve: rodar o llama-server em OUTRA máquina (uma com GPU
+        dedicada) e deixar só o daemon aqui. O cliente é agnóstico a host — é `base_url`
+        num httpx, e `_health_url` deriva dele —, mas o daemon exigia 9 GB de peso local
+        para conversar com um servidor remoto que já os tem carregados.
+
+        O caminho remoto não é hipotético: extração mede ~3 min por fonte no Metal de um
+        M1 Pro, e uma varredura completa é uma dezena de horas de GPU.
+        """
         missing: list[str] = []
         if not self.config.llm.model_path.is_file():
             missing.append(f"modelo de geração: {self.config.llm.model_path}")
@@ -57,7 +68,10 @@ class Daemon:
 
     async def run(self, *, stop: asyncio.Event | None = None,
                   drain: bool = False, drain_max: int | None = None) -> None:
-        self._check_models()
+        # Só quando SOMOS nós que subimos os servidores. Com `--external-servers` os pesos
+        # podem estar noutra máquina, e exigi-los aqui bloqueava justamente esse uso.
+        if self.manage_servers:
+            self._check_models()
         stop = stop or asyncio.Event()
         cfg = self.config
         cfg.ensure_dirs()
