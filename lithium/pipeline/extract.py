@@ -93,17 +93,59 @@ def quote_is_anchored(quote: str, source_text: str) -> bool:
 
 
 @dataclass(slots=True)
+class Rejection:
+    """Uma claim que NÃO entrou, e por qual portão.
+
+    Era uma string formatada, e a formatação destruía a estrutura: `chunk_id` e `gate`
+    viravam prosa dentro de uma f-string que ia para `log.debug` — e o único handler de
+    log deste projeto é `RichHandler(console)`, sem arquivo. Ou seja, o NÃO de cada portão
+    existia por alguns milissegundos e sumia. As taxas dos portões que motivaram este
+    trabalho só puderam ser medidas porque uma sessão redirecionou stdout por acaso, e o
+    arquivo estava em `/tmp` — que o macOS apaga no boot, como de fato apagou.
+    """
+
+    chunk_id: int
+    gate: str          # 'anchor' | 'entailment' | 'error'
+    reason: str
+    statement: str = ""
+    quote: str = ""
+
+    def __str__(self) -> str:
+        return f"chunk {self.chunk_id} [{self.gate}]: {self.reason}"
+
+
+@dataclass(slots=True)
 class ExtractionResult:
     source_id: int
     proposed: int = 0
     anchored: int = 0
     verified: int = 0
+    chunks_seen: int = 0
     claim_ids: list[int] = field(default_factory=list)
-    rejections: list[str] = field(default_factory=list)
+    rejections: list[Rejection] = field(default_factory=list)
+    chunks_yielding: set[int] = field(default_factory=set)
+    """Chunks que produziram ao menos uma claim. Conjunto de CHUNK id — `claim_ids` é de
+    claim, e confundir os dois foi o primeiro jeito que eu escrevi isto."""
 
     @property
     def anchor_rate(self) -> float:
         return self.anchored / self.proposed if self.proposed else 0.0
+
+    @property
+    def chunks_annihilated(self) -> int:
+        """Propôs e perdeu TUDO — o paper certo, a citação ruim. Ação: apertar o extrator."""
+        propôs = {r.chunk_id for r in self.rejections if r.gate != "error"}
+        return len(propôs - self.chunks_yielding)
+
+    @property
+    def chunks_sterile(self) -> int:
+        """Não propôs NADA — o paper errado. Ação: trocar a frente de busca.
+
+        A distinção de `chunks_annihilated` é a diferença entre duas ações OPOSTAS, e hoje
+        as duas são a mesma ausência de linha em 76 dos 160 chunks do corpus real.
+        """
+        tocou = self.chunks_yielding | {r.chunk_id for r in self.rejections}
+        return max(0, self.chunks_seen - len(tocou))
 
 
 class Extractor:
@@ -170,7 +212,7 @@ class Extractor:
                 "desconhecido. Escolha um com `lithium focus --use <slug>`."
             )
 
-        result = ExtractionResult(source_id=source_id)
+        result = ExtractionResult(source_id=source_id, chunks_seen=len(chunks))
         for chunk in chunks:
             await self._extract_chunk(source, chunk, result, focus)
         return result
@@ -198,16 +240,17 @@ class Extractor:
             )
         except LLMError as exc:
             log.warning("extração falhou no chunk %s: %s", chunk["id"], exc)
-            result.rejections.append(f"chunk {chunk['id']}: {exc}")
+            result.rejections.append(
+                Rejection(chunk_id=int(chunk["id"]), gate="error", reason=str(exc)))
             return
 
         for claim in extraction.claims:
             result.proposed += 1
             if not quote_is_anchored(claim.supporting_quote, chunk["text"]):
-                result.rejections.append(
-                    f"chunk {chunk['id']}: citação não literal — "
-                    f"{claim.supporting_quote[:80]!r}"
-                )
+                result.rejections.append(Rejection(
+                    chunk_id=int(chunk["id"]), gate="anchor",
+                    reason="citação não literal",
+                    statement=claim.statement, quote=claim.supporting_quote))
                 continue
             result.anchored += 1
 
@@ -215,11 +258,14 @@ class Extractor:
                 verdict = await self._entails(claim)
                 if verdict is None or not verdict.supported:
                     reason = verdict.reason if verdict else "verificador indisponível"
-                    result.rejections.append(f"chunk {chunk['id']}: não implicada — {reason}")
+                    result.rejections.append(Rejection(
+                        chunk_id=int(chunk["id"]), gate="entailment", reason=reason,
+                        statement=claim.statement, quote=claim.supporting_quote))
                     continue
 
             claim_id = self._persist(source["id"], chunk["id"], claim, focus)
             result.claim_ids.append(claim_id)
+            result.chunks_yielding.add(int(chunk["id"]))
             result.verified += 1
 
     async def _entails(self, claim: ExtractedClaim) -> CitationVerdict | None:
@@ -254,14 +300,18 @@ class Extractor:
         """
         with self.store.tx() as conn:
             cur = conn.execute(
-                "INSERT INTO claims(source_id, chunk_ids, statement, population, "
-                "  intervention, comparator, outcome, direction, effect, grade, "
-                "  scale_id, confidence, verified) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1) RETURNING id",
+                "INSERT INTO claims(source_id, chunk_ids, statement, supporting_quote, "
+                "  population, intervention, comparator, outcome, direction, effect, "
+                "  grade, scale_id, confidence, verified) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1) RETURNING id",
                 (
                     source_id,
                     json.dumps([chunk_id]),
                     claim.statement,
+                    # A citação que o portão 1 ACABOU de validar. Ela já está em mãos —
+                    # gravá-la custa uma coluna e é a diferença entre "rastreável ao
+                    # chunk" e "rastreável à frase".
+                    claim.supporting_quote,
                     claim.population or None,
                     _intervention_or_none(claim.intervention),
                     claim.comparator or None,

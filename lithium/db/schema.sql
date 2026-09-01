@@ -306,6 +306,11 @@ CREATE TABLE IF NOT EXISTS claims (
     source_id    INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
     chunk_ids    TEXT NOT NULL,             -- JSON array de chunk.id
     statement    TEXT NOT NULL,
+    -- A citação VERBATIM que o portão 1 validou. Ela existia só em memória: usada
+    -- para a checagem de ancoragem e para o prompt do portão 2, e descartada logo
+    -- depois. `chunk_ids` aponta para o chunk INTEIRO — esta coluna aponta para a
+    -- frase. Sem ela o portão 1 não é reverificável e o revisor não vê o trecho.
+    supporting_quote TEXT,
     population   TEXT,
     intervention TEXT,
     comparator   TEXT,
@@ -645,6 +650,56 @@ CREATE TABLE IF NOT EXISTS reports (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+
+-- ─────────────────────────────────────────────── medição dos portões de extração
+
+-- O NÃO de cada portão, que antes não existia em lugar nenhum.
+--
+-- Todo portão do sistema gravava o SIM e jogava o NÃO num logger cujo único handler é
+-- `RichHandler(console)` (`cli.py:_setup_logging`) — sem arquivo. As taxas dos portões
+-- que motivaram esta tabela (219/247 e 186/219) só puderam ser medidas porque uma sessão
+-- redirecionou stdout POR ACASO, e o arquivo estava em `/tmp`, que o macOS apaga no boot
+-- — como de fato apagou o log das cinco primeiras fontes, 27 claims, 12,7% do corpus.
+--
+-- Sem isto, "os portões afrouxaram?" não tem resposta no banco. E portão afrouxando é o
+-- mecanismo de acumular delírio, que é a tese do projeto. Ver METRICS.md, MF1.
+CREATE TABLE IF NOT EXISTS extraction_runs (
+    id            INTEGER PRIMARY KEY,
+    source_id     INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    focus_id      INTEGER REFERENCES focuses(id),
+    proposed      INTEGER NOT NULL,
+    anchored      INTEGER NOT NULL,
+    verified      INTEGER NOT NULL,
+    chunks_seen   INTEGER NOT NULL,
+    -- Propôs e perdeu tudo (o paper certo, a citação ruim) vs não propôs nada (o paper
+    -- errado). Ações OPOSTAS — apertar o extrator vs trocar a frente de busca — e hoje
+    -- as duas são a mesma ausência de linha em 76 dos 160 chunks.
+    chunks_annihilated INTEGER NOT NULL DEFAULT 0,
+    chunks_sterile     INTEGER NOT NULL DEFAULT 0,
+    -- 'run' = medido de primeira mão. 'log' = retro-encaixado de um arquivo de log, e
+    -- portanto de segunda mão. Nunca misturar os dois numa média sem dizer.
+    origin        TEXT NOT NULL DEFAULT 'run' CHECK (origin IN ('run', 'log')),
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_runs_source ON extraction_runs(source_id);
+
+-- Uma linha por claim que NÃO entrou. `gate` é o que separa "o gerador fabricou citação"
+-- de "a citação era literal mas não sustentava" — dois defeitos diferentes, com consertos
+-- diferentes, que a string formatada antiga misturava.
+CREATE TABLE IF NOT EXISTS extraction_rejections (
+    id         INTEGER PRIMARY KEY,
+    run_id     INTEGER NOT NULL REFERENCES extraction_runs(id) ON DELETE CASCADE,
+    chunk_id   INTEGER,
+    gate       TEXT NOT NULL CHECK (gate IN ('anchor', 'entailment', 'error')),
+    reason     TEXT NOT NULL,
+    statement  TEXT,
+    -- A citação REJEITADA. É o material para responder "o gerador está parafraseando ou
+    -- está colando três palavras seguras?" — que MF1 não consegue distinguir só com taxa.
+    quote      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_rejections_run ON extraction_rejections(run_id);
 
 -- ──────────────────────────────────────────────────────────────── dataset de treino
 --

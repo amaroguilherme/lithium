@@ -158,7 +158,9 @@ async def test_unanchored_claim_never_reaches_the_database(store):
 
     assert result.proposed == 1 and result.anchored == 0 and result.verified == 0
     assert store.conn.execute("SELECT COUNT(*) AS n FROM claims").fetchone()["n"] == 0
-    assert "não literal" in result.rejections[0]
+    # sobre a ESTRUTURA, não sobre a prosa: `gate` é o que a métrica lê.
+    assert result.rejections[0].gate == "anchor"
+    assert result.rejections[0].quote, "a citação rejeitada não foi guardada"
 
 
 async def test_entailment_gate_runs_only_on_anchored_claims(store):
@@ -179,7 +181,7 @@ async def test_anchored_but_unentailed_claim_is_rejected(store):
 
     assert result.anchored == 1 and result.verified == 0
     assert store.conn.execute("SELECT COUNT(*) AS n FROM claims").fetchone()["n"] == 0
-    assert "não implicada" in result.rejections[0]
+    assert result.rejections[0].gate == "entailment"
 
 
 async def test_verifier_failure_rejects_rather_than_admits(store):
@@ -189,7 +191,8 @@ async def test_verifier_failure_rejects_rather_than_admits(store):
 
     assert result.verified == 0
     assert store.conn.execute("SELECT COUNT(*) AS n FROM claims").fetchone()["n"] == 0
-    assert "verificador indisponível" in result.rejections[0]
+    assert result.rejections[0].gate == "entailment"
+    assert "indisponível" in result.rejections[0].reason
 
 
 async def test_extraction_failure_on_one_chunk_does_not_abort_the_source(store):
@@ -445,4 +448,32 @@ async def test_an_unjudged_claim_is_reachable_by_relens(store):
 
     assert store.counts()["claims_unjudged"] == 1, (
         "a claim não julgada ficou fora de `claims_unjudged`: o relens não a alcança"
+    )
+
+
+async def test_the_verbatim_quote_is_persisted_with_the_claim(store):
+    """A citação que o portão 1 validou tem de sobreviver à extração.
+
+    Ela existia só em memória: usada para a checagem de ancoragem e para o prompt do
+    portão 2, e descartada. `chunk_ids` aponta para o chunk INTEIRO — sem esta coluna não
+    há como reverificar o portão 1 retroativamente nem mostrar ao revisor a frase exata em
+    que a claim se apoia, e a alegação de "citação rastreável" fica valendo só até o
+    parágrafo.
+
+    NÃO tem backfill: cada extração que roda sem a coluna perde a evidência para sempre.
+    Por isso é o primeiro passo de METRICS.md.
+
+    MUTAÇÃO: em `Extractor._persist`, gravar `None` no lugar de `claim.supporting_quote`.
+    """
+    citacao = "Quetiapine produced significantly greater reduction in HAM-A"
+    llm = ScriptedLLM([_extraction(_claim(supporting_quote=citacao))])
+    await Extractor(store, llm, profile=PROFILE).extract_source(1)
+
+    row = store.conn.execute(
+        "SELECT supporting_quote FROM claims").fetchone()
+    assert row["supporting_quote"] == citacao, (
+        "a citação verbatim não foi gravada; o portão 1 deixa de ser reverificável"
+    )
+    assert row["supporting_quote"] in CHUNK_TEXT, (
+        "a citação gravada não está no chunk — ela deveria ser a que passou o portão 1"
     )

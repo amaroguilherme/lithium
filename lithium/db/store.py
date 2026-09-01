@@ -369,6 +369,13 @@ class Store:
     # de propósito: o `ALTER TABLE ADD COLUMN` do SQLite é restrito, e o schema novo já
     # traz a constraint para bancos criados do zero.
     _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+        # A citação verbatim que o portão 1 validou. Ela existia só em memória: usada em
+        # `extract.py` para a checagem de ancoragem e para o prompt do portão 2, e
+        # descartada ~50 linhas depois. Sem ela não há como reverificar o portão 1
+        # retroativamente nem mostrar ao revisor o trecho exato em que a claim se apoia —
+        # `chunk_ids` aponta para o chunk inteiro, não para a frase. NÃO tem backfill:
+        # cada extração que roda sem esta coluna perde a evidência para sempre.
+        ("claims", "supporting_quote", "TEXT"),
         ("questions", "targets", "TEXT"),
         ("hypotheses", "tier", "TEXT NOT NULL DEFAULT 'evidence'"),
         ("hypotheses", "intervention_class", "TEXT"),
@@ -736,6 +743,39 @@ class Store:
         if row is None:
             return None
         return "ativa" if row["approved_at"] else "proposta"
+
+    def record_extraction(self, result: Any, focus_id: int | None = None,
+                          origin: str = "run") -> int:
+        """Persiste o resultado INTEIRO de uma extração, incluindo as rejeições.
+
+        Substitui um `log.info` mais um `log.debug(rejections[:5])`. Duas diferenças que
+        importam: nada é truncado (o `[:5]` descartava silenciosamente a partir da sexta),
+        e a linha sobrevive ao processo — o único handler de log deste projeto escreve no
+        console. Ver METRICS.md, MF1.
+
+        `origin='log'` marca retro-encaixe a partir de arquivo de log: medição de segunda
+        mão, que nunca deve entrar numa média junto com a de primeira sem dizer.
+        """
+        with self.tx() as conn:
+            cur = conn.execute(
+                "INSERT INTO extraction_runs"
+                "  (source_id, focus_id, proposed, anchored, verified, chunks_seen,"
+                "   chunks_annihilated, chunks_sterile, origin) "
+                "VALUES(?,?,?,?,?,?,?,?,?) RETURNING id",
+                (int(result.source_id), focus_id, result.proposed, result.anchored,
+                 result.verified, result.chunks_seen, result.chunks_annihilated,
+                 result.chunks_sterile, origin),
+            )
+            run_id = int(cur.fetchone()["id"])
+            for r in result.rejections:
+                conn.execute(
+                    "INSERT INTO extraction_rejections"
+                    "  (run_id, chunk_id, gate, reason, statement, quote) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (run_id, r.chunk_id, r.gate, r.reason[:500],
+                     (r.statement or None), (r.quote or None)),
+                )
+        return run_id
 
     def active_sources(self) -> list[sqlite3.Row]:
         """As fontes aprovadas. É o que o daemon monta em `Context.sources`."""

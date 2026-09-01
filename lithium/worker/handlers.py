@@ -222,14 +222,17 @@ async def extract_source(payload: dict[str, Any], ctx: Context) -> None:
     result = await Extractor(
         ctx.store, ctx.llm, profile=profile, n_ctx=ctx.config.llm.n_ctx
     ).extract_source(payload["source_id"])
+    # PERSISTE, e só depois loga. O log continua para quem está olhando o terminal; o
+    # que mudou é que ele deixou de ser o único registro. O `[:5]` de antes descartava a
+    # sexta rejeição em diante sem dizer, e o handler de log não escreve em arquivo.
+    ctx.store.record_extraction(result, focus_id=int(focus["id"]))
     log.info(
-        "fonte %s: %d propostas, %d ancoradas (%.0f%%), %d verificadas",
+        "fonte %s: %d propostas, %d ancoradas (%.0f%%), %d verificadas "
+        "[chunks: %d aniquilados, %d estéreis]",
         payload["source_id"], result.proposed, result.anchored,
         result.anchor_rate * 100, result.verified,
+        result.chunks_annihilated, result.chunks_sterile,
     )
-    if result.rejections:
-        for rejection in result.rejections[:5]:
-            log.debug("  rejeitada — %s", rejection)
 
 
 async def plan_tick(payload: dict[str, Any], ctx: Context) -> None:
