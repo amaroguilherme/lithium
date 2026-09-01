@@ -693,7 +693,7 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | **B** | **Trocar de foco** — perfil em disco + re-lente; absorveu o item 13 | ✅ |
 | **C** | **Reconhecimento web** — ele pesquisa, te conta, você autoriza a memorizar | ✅ |
 | **D** | **Registro de fontes + adapter genérico** — pagou a dívida de fiação do item 9 | ✅ |
-| **E** | **Plano de métricas** — o que medir para acompanhar a evolução do modelo | ⏳ plano |
+| **E** | **Plano de métricas** — o que medir para acompanhar a evolução do modelo | ✅ [METRICS.md](METRICS.md) |
 
 ### A ordem do pendente
 
