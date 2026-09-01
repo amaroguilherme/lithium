@@ -95,6 +95,9 @@ alert = "Lítio tem janela terapêutica estreita: exige litemia periódica e fun
 key = "abrupt_discontinuation"
 severity = "high"
 concepts = ["lithium"]
+# Parar É o evento perigoso aqui, então `interromp*`/`suspend*` não podem
+# suprimir esta regra como suprimem as outras. Ver `Rule.discontinuation`.
+discontinuation = true
 co_terms = ["parar de tomar", "parar de usar", "interrupção abrupta", "interrupcao abrupta", "abruptamente", "de uma vez", "abrupt discontinuation", "abrupt cessation", "abrupt withdrawal", "abruptly discontinu", "suspensão abrupta", "suspensao abrupta"]
 alert = "Interrupção abrupta de lítio associa-se a mania de rebote — o risco não é o mesmo de uma retirada gradual."
 

@@ -78,14 +78,27 @@ def screen(segments: list[Segment], ruleset: RuleSet = ABSENT) -> list[Alert]:
             s.ref or s.kind
             for s in segments
             if any(
-                matches(t, s.text, negation_aware=s.kind in NEGATION_AWARE_KINDS)
+                # A exceção de descontinuação vale para os TERMOS também, não só para
+                # os co-termos: em "interrompi o lítio abruptamente", quem é suprimido é
+                # o próprio `lítio` — `interrompi` está a duas palavras dele e dentro da
+                # janela de 40 caracteres de `_NEGATION`. Consertar só o co-termo deixava
+                # a regra sem disparar do mesmo jeito. MEDIDO nas duas metades.
+                matches(t, s.text,
+                        negation_aware=(s.kind in NEGATION_AWARE_KINDS
+                                        and not rule.discontinuation))
                 for t in terms_for(rule.terms, s.kind)
             )
         )
         if not where:
             continue
         if rule.co_terms and not any(
-            matches(c, joined, negation_aware=joined_aware) for c in rule.co_terms
+            # Regra cujo GATILHO é a descontinuação nunca aplica supressão de negação
+            # aos próprios co-termos: `interromp\w*` e `suspend\w*` estão em `_NEGATION`,
+            # e sem esta exceção a regra se desliga com o vocabulário que existe para
+            # caçar. MEDIDO: "interrompi o lítio abruptamente" não disparava nada.
+            matches(c, joined,
+                    negation_aware=joined_aware and not rule.discontinuation)
+            for c in rule.co_terms
         ):
             continue
         alerts.append(

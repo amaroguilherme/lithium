@@ -68,6 +68,32 @@ class Rule:
     interrupção abrupta enquanto o corpus recuperado fala de lítio é exatamente o caso
     que importa, e ele nunca cai num segmento só."""
 
+    discontinuation: bool = False
+    r"""A descontinuação é o GATILHO desta regra, não uma negação dela.
+
+    `_NEGATION` contém `suspend\w*` e `interromp\w*` porque, para quase toda regra,
+    "suspendeu o valproato" significa que a pessoa NÃO está usando valproato e o alerta de
+    teratogenicidade não cabe. Para `abrupt_discontinuation` a leitura se inverte: parar
+    **é** o evento perigoso.
+
+    O resultado era a regra se desligando com o vocabulário que ela existe para caçar. O
+    docstring de `matches` já descrevia isso e o conserto da Fase 1 confinou a correção ao
+    canal de SÍNTESE (`negation_aware=False` para prosa), deixando o canal do usuário
+    quebrado. MEDIDO agora, com o screen de produção:
+
+        "interrompi o lítio abruptamente na semana passada"  -> NENHUM alerta
+        "suspendi o lítio abruptamente"                      -> NENHUM alerta
+        "parei o lítio de uma vez"                           -> alerta OK
+        "interrupção abrupta de lítio"                       -> alerta OK
+
+    Ou seja: as duas formas mais naturais de um falante de português relatar que
+    interrompeu o remédio, silenciadas no alerta de maior severidade da tabela.
+
+    O conserto é por REGRA e não por canal porque o conflito é por regra: o mesmo verbo
+    suprime `valproate_teratogenicity` corretamente e `abrupt_discontinuation`
+    incorretamente. Vem do TOML, então o maquinário continua agnóstico a foco.
+    """
+
 
 # ─────────────────────────────────────────────────────────────────── o ruleset
 
@@ -125,6 +151,7 @@ def ruleset_from_profile(profile) -> RuleSet:
             )),
             alert=r.alert,
             co_terms=tuple(r.co_terms),
+            discontinuation=bool(getattr(r, "discontinuation", False)),
         )
         for r in safety.rules
     )

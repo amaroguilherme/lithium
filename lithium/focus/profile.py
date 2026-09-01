@@ -286,6 +286,8 @@ class RuleToml(Strict):
     primeira edição."""
     terms: list[str] = []
     co_terms: list[str] = []
+    # Ver `Rule.discontinuation`: verbo de parada é o GATILHO desta regra, não negação.
+    discontinuation: bool = False
 
     @model_validator(mode="after")
     def _has_something_to_match(self) -> RuleToml:
