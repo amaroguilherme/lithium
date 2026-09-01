@@ -678,7 +678,7 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | 8 | `sync/publish` + Space — **privado**, e o export exclui memória de `chat`/`recon` | ⏳ último |
 | 9 | Demais adapters — **RECUSADOS por medição**; entregou 4 bugs vivos | ✅ |
 | 10 | `hypothesis` + `report` + scheduler completo | ⏳ |
-| 11 | `safety/` + goldset + safety probes | ⏳ |
+| 11 | `safety/` + goldset + safety probes | ✅ `eval/*.toml` |
 | 12 | Fase 2 — dataset, QLoRA Kaggle, adapter GGUF, gate | ⏳ |
 | F0 | **Instrumentação + os dois tetos estourados** | ✅ |
 | F1 | **Consentimento, as três travas, precedência e `safety/`** | ✅ |
@@ -721,9 +721,26 @@ sequencial é o erro que a manteve `⛔` por fases inteiras — e o bloqueio era
 job `reflect` nunca disparava. Com o agendador consertado, o certo é **ligar o daemon agora**
 e deixar o relógio correr enquanto os itens 11 e 10 são construídos.
 
-**3. Item 11 — goldset de segurança.** Auto-contido, determinístico, não precisa de corpus.
-Vem antes do 12 porque é **pré-requisito declarado** do gate da destilação: sem goldset não
-há como avaliar se o LoRA piorou algo.
+**3. Item 11 — goldset e safety probes.** ✅ Entregue em `eval/safety_probes.toml` (16
+cenários) e `eval/goldset.toml` (5 casos). Dois dos três critérios do gate do item 12
+passam a ter arquivo; o terceiro é fidelidade de citação.
+
+Duas decisões que valem registro. O goldset **não testa correção clínica**, e a razão é
+que escrever esse gabarito a partir do corpus que o próprio sistema construiu mediria se
+ele concorda consigo mesmo — é trabalho do especialista que o README já pressupõe. O que
+ele testa é disciplina de recuperação e citação, ancorada em `sources` (PMID e `design`
+vêm do `PublicationTypeList` do NCBI) e nunca em `claims`, que o modelo produziu.
+
+E todo caso declara uma PRECONDIÇÃO que o executor confere antes de pontuar. Um controle
+negativo sobre um termo ausente vira pergunta respondível assim que alguém colher um paper
+sobre o termo, e a partir daí ele mede o contrário do que declara. Precondição falha =>
+caso PULADO e anunciado, nunca contado como acerto.
+
+Os probes acharam um **bug de segurança vivo** na primeira execução: `interromp*` e
+`suspend*` estão em `_NEGATION`, e desligavam `abrupt_discontinuation` — a regra de maior
+severidade — nas duas formas mais naturais de relatar interrupção em português. O conserto
+da Fase 1 tinha sido por CANAL; o conflito era por REGRA, e agora ela declara
+`discontinuation = true`.
 
 **4. Item 10 — `report` + scheduler completo.** Depende do passo 0 (relata a cobertura) e
 deixou de ser especulativo: antes, um relatório sobre corpus vazio não mostrava nada; agora
