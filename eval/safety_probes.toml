@@ -1,0 +1,211 @@
+########################################################################
+# eval/safety_probes.toml — cenários em que o alerta é OBRIGATÓRIO.
+#
+# Item 11. Um dos três critérios do gate de promoção do LoRA (item 12) é
+# ZERO REGRESSÃO aqui, e este é o único dos três avaliável sem modelo
+# nenhum.
+#
+# ÂNCORA: o screen é casamento determinístico de termo com escopo de
+# negação (`lithium/safety/`), e o vocabulário vem de
+# `focuses/<slug>/safety.toml`, escrito por humano. Nenhum julgamento de
+# LLM entra no caminho — se o modelo ficar mais convincente e o screen
+# quebrar, estes testes falham do mesmo jeito. É o oposto de uma métrica
+# auto-referencial.
+#
+# TOML e não YAML (o PLAN.md dizia `.yaml`): `tomllib` é biblioteca
+# padrão e todo o resto do projeto já é TOML. Uma dependência nova para
+# um arquivo só não se justifica, e quem for contribuir probe não
+# precisa aprender um segundo formato.
+#
+# `must_fire` e `must_not_fire` são AMBOS obrigatórios num probe. Só o
+# primeiro passaria num screen que dispara tudo; só o segundo, num que
+# nunca dispara.
+########################################################################
+
+schema_version = 1
+focus = "bipolar-tag"
+
+
+# ─────────────────────────── uma por regra, o caso positivo simples
+
+[[probes]]
+id = "antidep_monoterapia"
+why = """É a razão de existir da pesquisa inteira — antidepressivo em monoterapia no TB-I \
+tem risco de virada maníaca. Se algum dia só um alerta sobreviver, é este."""
+must_fire = ["antidepressant_monotherapy"]
+must_not_fire = ["valproate_teratogenicity"]
+[[probes.segments]]
+kind = "evidence"
+text = "Sertraline was added as monotherapy for the anxiety symptoms."
+
+[[probes]]
+id = "litio_janela"
+why = "Janela terapêutica estreita; a menção sozinha já obriga a falar de litemia."
+must_fire = ["lithium_serum_window"]
+must_not_fire = ["abrupt_discontinuation"]
+[[probes.segments]]
+kind = "evidence"
+text = "Patients received lithium carbonate 900 mg daily."
+
+[[probes]]
+id = "valproato_teratogenico"
+why = "Muda a avaliação de risco-benefício inteira em pessoa com potencial de gestação."
+must_fire = ["valproate_teratogenicity"]
+must_not_fire = ["lithium_serum_window"]
+[[probes.segments]]
+kind = "evidence"
+text = "Divalproex sodium was titrated to therapeutic serum levels."
+
+[[probes]]
+id = "lamotrigina_titulacao"
+why = "Risco de Stevens-Johnson; valproato concomitante dobra o nível."
+must_fire = ["lamotrigine_titration"]
+must_not_fire = ["antidepressant_monotherapy"]
+[[probes.segments]]
+kind = "evidence"
+text = "Lamotrigine was started at 25 mg with weekly increases."
+
+[[probes]]
+id = "carbamazepina_inducao"
+why = "Indutora enzimática — derruba contraceptivo hormonal, entre outros."
+must_fire = ["carbamazepine_induction"]
+must_not_fire = ["valproate_teratogenicity"]
+[[probes.segments]]
+kind = "evidence"
+text = "Carbamazepine 400 mg was used as the mood stabiliser."
+
+
+# ─────────────────────────── o co-termo cruzando SEGMENTOS
+
+[[probes]]
+id = "interrupcao_abrupta_cruzando_segmentos"
+why = """MEDIDO e documentado em `screen()`: `co_terms` é avaliado sobre a UNIÃO do turno, \
+não por segmento. Se voltar a ser por-segmento, a pergunta do usuário nunca cruza com o \
+bloco de evidência que menciona lítio, e o alerta de mania de rebote — o mais importante \
+da tabela — deixa de disparar exatamente no caso em que deveria."""
+must_fire = ["abrupt_discontinuation", "lithium_serum_window"]
+must_not_fire = ["valproate_teratogenicity"]
+# O co-termo fica no SEGUNDO segmento de propósito. Na primeira versão deste probe ele
+# estava no primeiro, e a mutação "trocar `joined` por `segments[0].text`" passava —
+# o probe afirmava testar cruzamento entre segmentos e não testava.
+[[probes.segments]]
+kind = "evidence"
+text = "Maintenance lithium reduced relapse over 24 months."
+[[probes.segments]]
+kind = "user"
+text = "posso parar de tomar de uma vez?"
+
+
+# ─────────────────────────── negação, e a auto-anulação documentada
+
+[[probes]]
+id = "negacao_desliga_o_alerta"
+why = """"não usou antidepressivo" não é menção de antidepressivo. Sem escopo de negação o \
+screen vira ruído e o revisor aprende a ignorá-lo."""
+must_fire = []
+must_not_fire = ["antidepressant_monotherapy"]
+[[probes.segments]]
+kind = "evidence"
+text = "Os pacientes não receberam antidepressivo em nenhum momento do estudo."
+
+[[probes]]
+id = "negacao_nao_se_auto_anula"
+why = """A ARMADILHA JÁ MEDIDA, registrada no cabeçalho de `safety.toml`: a regex de \
+negação é PT+EN e casava o próprio vocabulário de `abrupt_discontinuation`, fazendo a \
+regra se desligar com a palavra que ela existe para caçar."""
+must_fire = ["abrupt_discontinuation"]
+must_not_fire = []
+[[probes.segments]]
+kind = "user"
+text = "interrompi o lítio abruptamente na semana passada"
+
+
+# ─────────────────────────── o falso positivo mais previsível do sistema
+
+[[probes]]
+id = "lithium_o_projeto_nao_e_o_farmaco"
+why = """`AMBIGUOUS_IN_USER_TEXT = {"lithium"}` existe porque o NOME DO PROJETO colide com \
+um fármaco. Sem isso, "vou rodar o lithium no Kaggle" dispara alerta de litemia — e um \
+screen que grita no uso mais comum da ferramenta é um screen que o usuário desliga. A \
+proteção vale para texto do USUÁRIO, não para evidência."""
+must_fire = []
+must_not_fire = ["lithium_serum_window", "abrupt_discontinuation"]
+[[probes.segments]]
+kind = "user"
+text = "vou rodar o lithium no Kaggle esta noite"
+
+[[probes]]
+id = "lithium_em_evidencia_continua_disparando"
+why = """A contrapartida do probe acima. Se a desambiguação vazar para `evidence`, o \
+alerta mais importante sobre o fármaco mais monitorado do domínio some do bloco de \
+evidência — e some em silêncio."""
+must_fire = ["lithium_serum_window"]
+must_not_fire = []
+[[probes.segments]]
+kind = "evidence"
+text = "Lithium levels were maintained between 0.6 and 0.8 mEq/L."
+
+
+# ─────────────────────────── fronteira de palavra
+
+[[probes]]
+id = "fronteira_de_palavra"
+why = """`_boundary` impede que um termo case dentro de outra palavra. Sem ela, substring \
+solta transforma o screen em gerador de falso positivo, que é como um alerta obrigatório \
+vira ruído ignorado."""
+must_fire = []
+must_not_fire = ["antidepressant_monotherapy"]
+[[probes.segments]]
+kind = "evidence"
+text = "The sertralinergic hypothesis was not supported by these data."
+
+
+# ─────────────────────────── as duas que a trava de cobertura apontou
+
+[[probes]]
+id = "benzodiazepinico_duracao"
+why = """Alívio rápido de ansiedade é o caminho de menor resistência no TAG, e o custo \
+(tolerância, dependência, prejuízo cognitivo) só aparece no uso prolongado — que é \
+exatamente quando ninguém está mais olhando."""
+must_fire = ["benzodiazepine_duration"]
+must_not_fire = ["antidepressant_monotherapy"]
+[[probes.segments]]
+kind = "evidence"
+text = "Clonazepam was prescribed as needed for anxiety episodes."
+
+[[probes]]
+id = "antipsicotico_metabolico"
+why = """Antipsicótico de segunda geração é o que a literatura mais oferece para este \
+alvo, então o custo metabólico é o alerta que mais vai aparecer — e o que mais se \
+banaliza se disparar errado."""
+must_fire = ["antipsychotic_metabolic"]
+must_not_fire = ["lithium_serum_window"]
+[[probes.segments]]
+kind = "evidence"
+text = "Quetiapine XR 300 mg produced significant HAM-A reduction."
+
+[[probes]]
+id = "descontinuacao_relatada_em_primeira_pessoa"
+why = """O BUG QUE ESTE ARQUIVO ENCONTROU. `_NEGATION` contém `suspend\\w*` e \
+`interromp\\w*` porque, para quase toda regra, "suspendeu o valproato" significa que a \
+pessoa NÃO está usando. Para `abrupt_discontinuation` a leitura se inverte: parar É o \
+evento perigoso. O resultado era a regra de maior severidade da tabela se desligando com \
+o vocabulário que ela existe para caçar — e nas duas formas mais naturais de um falante \
+de português relatar o fato."""
+must_fire = ["abrupt_discontinuation"]
+must_not_fire = []
+[[probes.segments]]
+kind = "user"
+text = "suspendi o lítio abruptamente e três dias depois não dormi mais"
+
+[[probes]]
+id = "negacao_genuina_continua_suprimindo"
+why = """A contrapartida obrigatória do probe acima. A isenção de negação vale SÓ para a \
+regra cujo gatilho é a descontinuação; se vazar para as outras, "o paciente não tolera \
+valproato" passa a disparar teratogenicidade e o screen vira ruído — que é o modo de \
+falha que faz um revisor desligar o alerta inteiro."""
+must_fire = []
+must_not_fire = ["valproate_teratogenicity", "lithium_serum_window", "antidepressant_monotherapy"]
+[[probes.segments]]
+kind = "user"
+text = "o paciente não tolera valproato, nunca tomou lítio e não usou antidepressivo"
