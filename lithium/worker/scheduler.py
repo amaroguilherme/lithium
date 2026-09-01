@@ -66,6 +66,9 @@ DEFAULT_JOBS: tuple[Job, ...] = (
     # silenciosamente estrangulado para 1x/hora — o segundo disparo colide na chave,
     # `enqueue` devolve None, e o relógio avança como se tivesse rodado.
     Job("notify", 3600, "notify_tick", priority=0.8, run_on_start=True),
+    # Semanal. `run_on_start=False`: subir o daemon não é motivo para relatório, e
+    # o primeiro sairia sobre uma janela de zero segundo.
+    Job("report", 604800, "write_report", priority=0.2, run_on_start=False),
     Job("purge", 86400, "purge_tasks", priority=0.1),
     # O batedor da web. UMA varredura por dia, e o número não é livre: `dedup_key` usa
     # um balde de HORA, então qualquer intervalo abaixo de 3600 s é estrangulado em

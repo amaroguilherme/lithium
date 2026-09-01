@@ -628,7 +628,22 @@ async def _pmid_for_doi(ctx: Context, doi: str) -> str | None:
     return ids[0] if len(ids) == 1 else None
 
 
+async def write_report(payload: dict[str, Any], ctx: Context) -> None:
+    """Monta e SALVA o relatório periódico.
+
+    Salvar é o que move a janela: o próximo relatório cobre o período desde este. Por isso
+    o JOB salva e o comando de CLI não — ler por curiosidade não pode fazer o próximo
+    esconder o período que ele acabou de mostrar.
+    """
+    from lithium import report as rep
+
+    r = rep.build(ctx.store)
+    rid = rep.save(ctx.store, r)
+    log.info("relatório #%d escrito (%d seções)", rid, len(r.sections))
+
+
 HANDLERS = {
+    "write_report": write_report,
     "relens_sweep": relens_sweep,
     "relens_claim": relens_claim,
     "recon_lead": recon_lead,

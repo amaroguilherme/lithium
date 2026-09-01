@@ -1717,5 +1717,29 @@ def sources(
             "[red]nenhuma fonte de evidência ativa:[/red] a colheita não produz claims."
         )
 
+@app.command()
+def report(
+    config: ConfigOpt = None,
+    save: Annotated[bool, typer.Option(
+        "--save", help="Persiste o relatório, o que define a janela do próximo")] = False,
+    since: Annotated[str | None, typer.Option(
+        "--since", help="Janela explícita (ISO). Vence o último relatório salvo")] = None,
+) -> None:
+    """O que MUDOU desde o último relatório, e o que não dá para saber.
+
+    `--save` é opt-in de propósito: salvar move a janela, e um relatório lido por
+    curiosidade não deveria fazer o próximo esconder o período que ele acabou de mostrar.
+    """
+    from lithium import report as rep
+
+    cfg = load_config(config)
+    store = _store(cfg)
+    r = rep.build(store, since=since)
+    console.print(r.render(), markup=False, highlight=False)
+    if save:
+        console.print(f"[green]✓[/green] salvo como relatório #{rep.save(store, r)} "
+                      f"— a janela do próximo começa agora")
+
+
 if __name__ == "__main__":
     app()
