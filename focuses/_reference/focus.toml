@@ -1,0 +1,120 @@
+########################################################################
+# PERFIL DE REFERÊNCIA — não é um foco.
+#
+# Ensina o FORMATO sem ensinar um DOMÍNIO. `focus --new` copia daqui, e o
+# prefixo `_` marca que este diretório nunca vira linha em `focuses`.
+#
+# Todo valor abaixo é placeholder. A carga falha enquanto
+# `scaffold_pending` existir — de propósito.
+#
+# A ordem de preenchimento que menos dá trabalho: `target` primeiro (sem
+# ele a carga nem chega aos outros erros), depois os `standing_risks`, e
+# só então os três blocos de vínculo, que precisam mencionar o pattern de
+# algum risco declarado.
+########################################################################
+
+schema_version = 1
+slug   = "_reference"
+scaffold_pending = true
+
+# PREENCHA. Rótulo curto, usado em prompt e em log.
+# target = "..."
+
+# PREENCHA. A frase que descreve o objetivo em prosa corrida, na primeira
+# pessoa do sistema. Vai para o cabeçalho de vários prompts.
+target_prose = "PREENCHA: o objetivo desta pesquisa, em uma frase"
+
+# Quem lê a saída. Muda o registro dos prompts — "engineer", "clinician",
+# "analyst". Não é decoração: o sistema não emite conduta, e o leitor
+# declarado é quem revisa.
+reader = "domain expert"
+
+# Qual escada de evidência este foco usa. Precisa existir em
+# `evidence_scales`. Ver METRICS.md sobre o limite atual: os NOMES dos
+# níveis ainda são um enum fechado de desenhos clínicos.
+scale = "clinical-evidence"
+
+# Prefixo que entra nas buscas por recuperação. O schema exige pelo menos
+# um caractere — não dá para deixar vazio.
+retrieval_prefix = "PREENCHA"
+
+# Este bloco ABRE o prompt de extração, e é o único lugar por onde um
+# risco permanente chega até ele — por isso o validador exige que a prosa
+# case o `pattern` de algum risco declarado (o PATTERN, não o `name`).
+# Vale para `extract_bind`, `question_bind` e `speculation_problem`. Sem a
+# menção, o
+# extrator, o gerador de perguntas e o de especulação rodam sem o risco
+# e nada no sistema acusa.
+extract_bind = """
+PREENCHA: o que amarra uma alegação a este foco. Uma ou duas frases que
+digam ao extrator o que conta como relevante aqui, mencionando o
+padrao a preencher."""
+
+question_bind = """
+PREENCHA: o que faz uma pergunta pertencer a este foco, mencionando o
+padrao a preencher."""
+
+question_scarcity = """
+PREENCHA: onde a evidência é escassa neste domínio, e o que isso implica
+para o tipo de pergunta que vale a pena fazer."""
+
+speculation_problem = """
+PREENCHA: o impasse que motiva especulação mecanística aqui, mencionando
+o padrao a preencher. Sem isso a trilha exploratória não tem contra o que
+gerar hipótese."""
+
+mechanistic_question = "PREENCHA: a pergunta mecanística central deste foco."
+
+sufficiency_scarcity = """
+PREENCHA: quando a evidência é suficiente para responder, dado que este
+domínio é escasso."""
+
+sufficiency_population_rule = """
+PREENCHA: como tratar evidência de população adjacente ao julgar
+suficiência."""
+
+population_hierarchy = """
+PREENCHA: da população mais aderente à menos, em prosa."""
+
+route_rationale = """
+PREENCHA: por que a via de administração (ou o análogo deste domínio)
+importa aqui. Deixe vazio se não importar."""
+
+# Critérios que matam uma hipótese na crítica adversarial.
+fatal_criteria = [
+    "PREENCHA: um critério que torna a hipótese inviável neste domínio",
+]
+
+safety = "safety.toml"
+
+# ─────────────────────────────────────────────────────────── directness
+#
+# A ESCADA DE ADERÊNCIA. Cada nível descreve QUE POPULAÇÃO conta como
+# aquele grau de proximidade ao alvo. É o multiplicando mais influente do
+# peso — ver PLAN.md — e é o que muda quando se troca de foco.
+[directness]
+direct       = { prose = "PREENCHA: exatamente a população-alvo" }
+partial      = { prose = "PREENCHA: parcialmente aderente" }
+indirect     = { prose = "PREENCHA: adjacente, mas informativa" }
+extrapolated = { prose = "PREENCHA: mecanismo, modelo, ou pura inferência" }
+
+# ────────────────────────────────────────────────────── standing_risks
+#
+# Riscos que o sistema anota SEMPRE que o padrão casar, em qualquer
+# resposta. `must_not_match` são os falsos positivos que você já viu — a
+# lista existe para que a regex não vire ruído.
+[[standing_risks]]
+name    = "risco-exemplo"
+# TRÊS contratos que o validador impõe, e que este exemplo satisfaz de
+# propósito para o molde carregar: o pattern tem de casar a própria
+# `prose` (o teste de prompt assere sobre o RENDER), NÃO pode casar
+# nenhum item de `must_not_match` (pattern largo demais deixa a trava
+# verde sem cobrir nada), e `must_not_match` precisa de ao menos um item
+# (regex sem contraexemplo é regex que ninguém testou).
+#
+# As três primeiras versões deste bloco foram REPROVADAS pelo validador,
+# cada uma por um contrato diferente. Deixo o registro porque quem for
+# preencher vai bater nos mesmos três.
+pattern = 'padrao a preencher'
+prose   = "PREENCHA: o que o leitor precisa saber quando o padrao a preencher aparecer"
+must_not_match = ["um texto qualquer que nao deve disparar este risco"]

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import re
 from pathlib import Path
 
 import pytest
@@ -704,3 +705,40 @@ def test_focus_new_writes_the_scaffold_mark_it_refuses_to_load(tmp_path, monkeyp
                     encoding="utf-8")
     with pytest.raises(ProfileError, match="scaffold_pending"):
         load_profile(focuses / "cardio-af")
+
+
+def test_a_new_focus_is_born_free_of_any_other_focus_domain(tmp_path):
+    """O molde de `focus --new` é NEUTRO, não o foco de produção.
+
+    Era `focuses/bipolar-tag`, e isso acoplava o maquinário a um foco específico: o
+    comando quebrava se aquele foco fosse renomeado ou aposentado, e o perfil novo nascia
+    cheio do domínio DELE — de modo que preencher só o `target` produzia um perfil que
+    anunciava um assunto e raciocinava sobre outro. MEDIDO na época: com alvo cardiológico
+    e o resto intocado, o prompt de extração falava de transtorno bipolar.
+
+    MUTAÇÃO: apontar `REFERENCE_PROFILE` de volta para `"bipolar-tag"`.
+    """
+    from typer.testing import CliRunner
+
+    from lithium.cli import app
+
+    focuses = tmp_path / "f"
+    focuses.mkdir()
+    raiz = Path(__file__).resolve().parent.parent / "focuses"
+    shutil.copytree(raiz / "_reference", focuses / "_reference")
+    cfgfile = tmp_path / "c.toml"
+    cfgfile.write_text(f'data_dir = "{tmp_path / "d"}"\nfocuses_dir = "{focuses}"\n',
+                       encoding="utf-8")
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "-c", str(cfgfile)]).exit_code == 0
+    r = runner.invoke(app, ["focus", "-c", str(cfgfile), "--new", "ligas-metalicas"])
+    assert r.exit_code == 0, r.output
+
+    # O molde SOZINHO basta: o teste não copiou nenhum foco real para `focuses_dir`, e
+    # se `focus --new` ainda dependesse de `bipolar-tag` ele teria falhado acima.
+    dominio = re.compile(r"bipolar|lítio|quetiapin|anxiety|psiquiatr|mania", re.I)
+    for arquivo in (focuses / "ligas-metalicas").glob("*.toml"):
+        achados = dominio.findall(arquivo.read_text(encoding="utf-8"))
+        assert not achados, (
+            f"{arquivo.name} nasceu com vocabulário de outro foco: {sorted(set(achados))}"
+        )

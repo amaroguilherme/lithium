@@ -1,0 +1,31 @@
+########################################################################
+# focuses/_reference/taxonomy.toml — o VOCABULÁRIO da especulação.
+#
+# `mechanism_targets` e `routes` são o espaço que a trilha exploratória
+# percorre; `intervention_classes` é o que agrupa a cobertura.
+#
+# São CLASSES, não um catálogo de itens: uma lista de nomes concretos
+# torna visível só a lacuna DENTRO dela, e o objetivo é o contrário.
+#
+# A ORDEM É CONTEÚDO. O que está mais longe da prática padrão vem por
+# último, de propósito — nada reordena esta lista.
+########################################################################
+
+schema_version = 1
+
+mechanism_targets = [
+  "PREENCHA: um alvo mecanístico deste domínio",
+  "PREENCHA: outro, mais distante da prática padrão",
+]
+
+routes = [
+  "PREENCHA: uma via de administração ou o análogo deste domínio",
+]
+
+[[intervention_classes]]
+label = "PREENCHA: o nome da classe"
+keywords = ["PREENCHA", "termos", "que", "casam", "esta", "classe"]
+
+[[intervention_classes]]
+label = "PREENCHA: outra classe"
+keywords = ["PREENCHA"]

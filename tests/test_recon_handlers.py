@@ -574,3 +574,38 @@ def test_the_declared_gpu_cost_matches_the_actual_fan_out():
         min(cfg.max_calls_per_sweep * cfg.max_reads_per_query,
             cfg.max_pages_per_day) * read_s
     assert worst / 86400 < 0.012, f"{worst / 60:.1f} min/dia é caro demais para o batedor"
+
+
+def test_the_query_always_comes_from_the_active_focus(tmp_path):
+    """Nenhuma query pode ser literal — nem no caminho de produção nem nos atalhos.
+
+    O comando de gravação de fixture tinha `"bipolar maintenance lithium guideline"`
+    fixo: buscava psiquiatria em qualquer foco e gravava a fixture com o domínio errado.
+    Hoje ele chama `queries_for`, o mesmo construtor da varredura, então esta trava cobre
+    os dois.
+
+    MUTAÇÃO: em `queries_for`, devolver uma string literal em vez de derivar do alvo.
+    """
+    from lithium.recon.handlers import queries_for
+
+    from lithium.db import Store
+
+    store = Store(tmp_path / "q.db", embedding_dim=8)
+    store.init_schema()
+
+    # Um alvo que NENHUM literal plausível conteria. A primeira versão deste teste usava
+    # o alvo de produção, que começa com "bipolar" — e a mutação que eu tentei matar
+    # ("bipolar maintenance lithium guideline") também diz "bipolar". O teste passava
+    # contra o próprio defeito. É a classe tautológica que este repo caça, e eu a
+    # cometi aqui.
+    alvo = "liga Ti-6Al-4V sob fadiga criogênica"
+    store.conn.execute("UPDATE focuses SET target = ? WHERE id = ?",
+                       (alvo, store.active_focus()["id"]))
+    focus = store.active_focus()
+    [(qid, q)] = queries_for(store, focus, tmp_path, limit=1)
+
+    assert "Ti-6Al-4V" in q, (
+        f"a query {q!r} não deriva do alvo {alvo!r} — um literal voltou"
+    )
+    assert qid == 0, "sem perguntas no banco, a query é o fallback derivado do alvo"
+    store.close()

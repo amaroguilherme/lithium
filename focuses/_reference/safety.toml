@@ -1,0 +1,38 @@
+########################################################################
+# focuses/_reference/safety.toml — SÓ O VOCABULÁRIO.
+#
+# O MAQUINÁRIO fica em código (`lithium/safety/`) e é agnóstico a foco.
+# Só as palavras descem para cá.
+#
+# LIMITE DECLARADO: o escopo de negação (`_NEGATION`) é regex PT+EN
+# calibrada em português. Um safety.toml escrito só em inglês não recebe
+# a mesma proteção contra falso positivo, e isso é limite conhecido, não
+# bug.
+#
+# Um foco que não tenha risco a vigiar declara a ausência EXPLICITAMENTE
+# (listas vazias). Uma camada que cobre nada afirmando cobrir algo é pior
+# que camada nenhuma.
+########################################################################
+
+schema_version = 1
+
+# `label` é o rótulo legível; `forms` são as grafias que casam no texto —
+# inclua sinônimos, nomes comerciais e as duas línguas se for o caso.
+[[concepts]]
+key = "PREENCHA"
+label = "PREENCHA"
+forms = ["PREENCHA", "variantes", "e", "sinônimos"]
+properties = []
+
+# `severity` é 'high' ou 'medium'. `concepts` é indireção: expande para
+# as `forms` do conceito, para não duplicar as grafias dentro do mesmo
+# arquivo. `co_terms` exige um segundo termo em ALGUM lugar do turno.
+#
+# `discontinuation = true` marca a regra cujo GATILHO é parar de usar
+# algo — nela os verbos de interrupção não podem suprimir por negação,
+# senão a regra se desliga com o vocabulário que existe para caçar.
+[[rules]]
+key = "PREENCHA"
+severity = "medium"
+concepts = ["PREENCHA"]
+alert = "PREENCHA: o que o leitor precisa saber quando isto aparece."

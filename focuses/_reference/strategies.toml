@@ -1,0 +1,32 @@
+########################################################################
+# focuses/_reference/strategies.toml — as FRENTES DE BUSCA.
+#
+# Cada frente declara um `expected_directness` ANTES de ver o resultado.
+# É esse prior que permite o sistema raciocinar "desenho forte, população
+# errada" em vez de tratar todo achado como equivalente — ver PLAN.md.
+#
+# `expected_directness` é validado contra os níveis DESTE foco: um valor
+# fora da escada declarada em `focus.toml` faz a carga falhar.
+########################################################################
+
+schema_version = 1
+
+[[strategies]]
+name = "intersecao_direta"
+expected_directness = "direct"
+priority = 0.95
+limit = 20
+rationale = "PREENCHA: por que esta frente existe e o que ela busca que as outras não buscam."
+queries = [
+  "PREENCHA: uma query na sintaxe nativa da fonte",
+]
+
+[[strategies]]
+name = "adjacente"
+expected_directness = "indirect"
+priority = 0.5
+limit = 20
+rationale = "PREENCHA: a frente que traz população vizinha. Existe porque em domínio escasso a evidência adjacente é a maior parte do que há."
+queries = [
+  "PREENCHA",
+]

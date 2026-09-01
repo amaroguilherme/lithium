@@ -27,6 +27,13 @@ from lithium.worker.queue import TaskQueue
 app = typer.Typer(add_completion=False, help="Assistente autônomo de síntese de evidência.")
 console = Console()
 
+REFERENCE_PROFILE = "_reference"
+"""O diretório de molde para `focus --new`.
+
+O prefixo `_` marca que NÃO é um foco: nunca recebe linha em `focuses`, e a listagem o
+ignora. O maquinário não pode nomear um foco real — foi assim que `focus --new` passou a
+depender de `bipolar-tag` existir."""
+
 ConfigOpt = Annotated[Path | None, typer.Option("--config", "-c", help="Caminho do config TOML")]
 
 
@@ -644,7 +651,24 @@ def _record_brave_fixture(cfg, store) -> None:
         console.print("[yellow]teto diário de buscas atingido[/yellow]")
         raise typer.Exit(1)
 
-    query = "bipolar maintenance lithium guideline"
+    # DO FOCO ATIVO, não literal. Era `"bipolar maintenance lithium guideline"` fixo, o
+    # que fazia este comando buscar psiquiatria mesmo num foco de outro domínio — e a
+    # fixture gravada sairia com o domínio errado, contaminando o teste de quem trocasse
+    # de foco. O caminho de produção (`recon.handlers.queries_for`) já derivava do alvo;
+    # só este atalho não derivava.
+    from lithium.recon.handlers import queries_for
+
+    focus = store.active_focus()
+    if focus is None:
+        console.print("[red]nenhum foco ativo:[/red] a busca não teria alvo.")
+        raise typer.Exit(1)
+    # O MESMO construtor da produção, não uma segunda construção. Era um literal
+    # (`"bipolar maintenance lithium guideline"`), o que fazia este comando buscar
+    # psiquiatria em qualquer foco — e gravar a fixture com o domínio errado. Reusar
+    # `queries_for` também herda de graça a decisão de privacidade dele: pergunta que o
+    # usuário digitou (`origin='human'`) nunca vai para a API de terceiro.
+    planejadas = queries_for(store, focus, cfg.focuses_dir, limit=1)
+    query = planejadas[0][1]
 
     async def _go() -> dict:
         try:
@@ -1436,38 +1460,34 @@ def _focus_new(store, cfg, slug: str) -> None:
         raise typer.Exit(1)
 
     if not dest.is_dir():
-        template = Path(__file__).resolve().parent.parent / "focuses" / "bipolar-tag"
+        # O molde é `_reference`, um perfil NEUTRO — não o foco de produção.
+        #
+        # Era `focuses/bipolar-tag`, e isso acoplava o maquinário a um foco específico de
+        # duas formas: `focus --new` quebrava se aquele foco fosse renomeado ou
+        # aposentado, e o perfil novo nascia cheio do domínio DELE, de modo que preencher
+        # só o `target` produzia um perfil que MENTIA — o prompt de extração anunciava um
+        # assunto e a escada de directness definia outro.
+        #
+        # `scaffold_pending` existia para conter exatamente essa mentira. Com molde
+        # neutro ele passa a significar a coisa simples: "ainda não preenchido". E some a
+        # cirurgia de string sobre valores literais daquele arquivo (`slug = "bipolar-tag"`,
+        # `target = "bipolar I + comorbid GAD"`), que quebrava a cada reformatação dele.
+        template = Path(__file__).resolve().parent.parent / "focuses" / REFERENCE_PROFILE
         if not template.is_dir():
             console.print(f"[red]nenhum perfil de referência em {template}[/red]")
             raise typer.Exit(1)
         shutil.copytree(template, dest)
-        # `target` sai do template AUSENTE, nunca vazio: a carga tem de falhar ALTO na
-        # primeira execução. Um `target = ""` passa o NOT NULL do SQLite, renderiza
-        # `matches ""` no prompt, e — como o BANCO vence para `target` — corrigir o
-        # TOML depois já não conserta as arestas que o relens gravou contra a string
-        # vazia.
         focus_toml = dest / "focus.toml"
         focus_toml.write_text(
             focus_toml.read_text(encoding="utf-8")
-            .replace(
-                'slug   = "bipolar-tag"',
-                f'slug   = "{slug}"\n\n'
-                "# Apague esta linha DEPOIS de revisar os quatro arquivos. Enquanto ela\n"
-                "# estiver aqui o perfil não carrega, e é de propósito: os outros três\n"
-                "# TOML ainda são a cópia do foco de referência, com o domínio DELE.\n"
-                "scaffold_pending = true",
-            )
-            .replace('target = "bipolar I + comorbid GAD"',
-                     "# PREENCHA: sem esta chave a carga do perfil falha, de propósito.\n"
-                     "# target = \"...\""),
+            .replace(f'slug   = "{REFERENCE_PROFILE}"', f'slug   = "{slug}"'),
             encoding="utf-8",
         )
         console.print(f"[green]✓[/green] perfil criado em {dest}")
         console.print(
-            "[yellow]o perfil é uma CÓPIA do foco de referência[/yellow] — estratégias, "
-            "taxonomia e segurança ainda são do domínio dele. Preencha `target`, revise "
-            "os quatro arquivos, apague `scaffold_pending` e rode `lithium focus --new` "
-            "de novo."
+            "[yellow]o perfil é o molde NEUTRO[/yellow] — todo valor é placeholder. "
+            "Preencha os quatro arquivos, apague `scaffold_pending` de `focus.toml` e "
+            "rode `lithium focus --new` de novo."
         )
         return
 
