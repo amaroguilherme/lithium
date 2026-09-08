@@ -694,74 +694,230 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | **C** | **Reconhecimento web** — ele pesquisa, te conta, você autoriza a memorizar | ✅ |
 | **D** | **Registro de fontes + adapter genérico** — pagou a dívida de fiação do item 9 | ✅ |
 | **E** | **Plano de métricas** — o que medir para acompanhar a evolução do modelo | ✅ [METRICS.md](METRICS.md) |
+| **F** | **Ligar a busca diária na web aberta** no teto de buscas/dia — é o canal genérico que o PubMed não é | ⏳ |
+| **G** | **`SEARCH_AGAIN` não busca nada** — o juiz pede material e ninguém enfileira busca; investigado e diagnosticado | ⏳ **PRÓXIMO** (conserto) |
+| **H** | **Contrapressão e log durável** — o pipeline perde trabalho sob pressão de memória, e o log não sobrevive ao processo | ⏳ |
 
 ### A ordem do pendente
 
-Por dependência, não por número. Três coisas decidem a sequência: o que **corrompe dado
-enquanto espera**, o que custa **espera** em vez de construção, e o que é **pré-requisito
-declarado** de outra coisa.
+Reescrita depois da primeira operação real (168h, 8/9). Os passos que a versão anterior
+listava — conserto do `intervention`, item E, F5, item 11 — foram **entregues**, e a
+operação que os destravou também produziu o item G, que passa à frente de tudo.
 
-**0. O campo `intervention`** — não é fase, é conserto de prompt, e vem antes de tudo porque
-é o único item que **piora com o tempo**. Observado no primeiro contato: um paper sem
-intervenção nenhuma teve `"generalized anxiety disorder"` gravado ali. `build_state` agrupa
-a cobertura por esse campo e `CLASS_KEYWORDS` mapeia intervenção para classe — cada dia de
-operação escreve mais lixo numa tabela que o item 10 vai relatar e que a geração de
-perguntas já lê. Consertar depois exige reprocessar o corpus; consertar agora não custa
-nada além do golden.
+**1. Item G — ligar o produtor de busca que falta.** JÁ INVESTIGADO: o juiz está certo, e
+`SEARCH_AGAIN` não enfileira busca nenhuma. Resta o conserto, que é fiar um produtor de
+`harvest_query` a partir do `missing` do veredito. Trava três coisas: `findings` em zero, o
+dataset do item 12 em zero, e o sistema reduzido a gerador de perguntas em impasse.
 
-**1. Item E — o plano de métricas.** Cedo, e a razão é estrutural: métrica de evolução exige
-série temporal, e série não se constrói retroativamente. Decidir o que registrar **depois**
-de uma semana de operação perde essa semana. É barato (é um plano) e determina o que
-instrumentar antes de a janela abrir. Já tem o primeiro ponto: 213 claims, 50 fontes,
-distribuições de `directness`, `grade`, direção e peso, e 6,16 tok/s medidos.
+**2. Item F — ligar a busca na web aberta.** O bloqueio ("não implementar durante a
+operação") EXPIROU: a janela fechou em 8/9. E a operação produziu o argumento empírico a
+favor dele — as buscas dirigidas do `pursue` esgotaram o PubMed (`UR-174` devolveu 1
+resultado), então o canal genérico é o que resta. Depende de você: chave da Brave, que tem
+fatura.
 
-**2. F5 — em paralelo com todo o resto, não na fila.** Ela é a única entrega cujo custo é
-*calendário*: precisa do daemon no ar acumulando reflexão real. Tratá-la como item
-sequencial é o erro que a manteve `⛔` por fases inteiras — e o bloqueio era falso, porque o
-job `reflect` nunca disparava. Com o agendador consertado, o certo é **ligar o daemon agora**
-e deixar o relógio correr enquanto os itens 11 e 10 são construídos.
+**3. Item H — contrapressão e log durável.** Vem antes do dataset porque toda operação
+futura neste hardware passa por ele: sem contrapressão, cada pico de trabalho perde tarefas.
 
-**3. Item 11 — goldset e safety probes.** ✅ Entregue em `eval/safety_probes.toml` (16
-cenários) e `eval/goldset.toml` (5 casos). Dois dos três critérios do gate do item 12
-passam a ter arquivo; o terceiro é fidelidade de citação.
+**4. O construtor do dataset de treino.** `training_examples` tem **zero escritores** — a
+tabela está vazia desde o dia 1, e o gatilho do item 12 é 300 exemplos verificados. Sem
+este construtor, o item 12 não avança nem com um ano de operação. As duas respostas humanas
+de 5/9 já estão em `questions` esperando por ele.
 
-Duas decisões que valem registro. O goldset **não testa correção clínica**, e a razão é
-que escrever esse gabarito a partir do corpus que o próprio sistema construiu mediria se
-ele concorda consigo mesmo — é trabalho do especialista que o README já pressupõe. O que
-ele testa é disciplina de recuperação e citação, ancorada em `sources` (PMID e `design`
-vêm do `PublicationTypeList` do NCBI) e nunca em `claims`, que o modelo produziu.
+**5. O resto da instrumentação de METRICS.md.** MF2 a MF6 estão especificadas; só MF1 e as
+peças de MF5/MF6 foram construídas. Falta `claim_anchor` (congela o referente externo de
+MF2/MF3) e a leitura de MF4.
 
-E todo caso declara uma PRECONDIÇÃO que o executor confere antes de pontuar. Um controle
-negativo sobre um termo ausente vira pergunta respondível assim que alguém colher um paper
-sobre o termo, e a partir daí ele mede o contrário do que declara. Precondição falha =>
-caso PULADO e anunciado, nunca contado como acerto.
+**6. Item 12 — a destilação.** Depende do passo 3 e de mais operação. Dois dos três
+critérios de gate já têm arquivo (`eval/*.toml`); falta fidelidade de citação.
 
-Os probes acharam um **bug de segurança vivo** na primeira execução: `interromp*` e
-`suspend*` estão em `_NEGATION`, e desligavam `abrupt_discontinuation` — a regra de maior
-severidade — nas duas formas mais naturais de relatar interrupção em português. O conserto
-da Fase 1 tinha sido por CANAL; o conflito era por REGRA, e agora ela declara
-`discontinuation = true`.
+**7. Item 8 — `sync/publish` + Space.** Último e privado.
 
-**4. Item 10 — `report` + scheduler completo.** Depende do passo 0 (relata a cobertura) e
-deixou de ser especulativo: antes, um relatório sobre corpus vazio não mostrava nada; agora
-há distribuição real para relatar. É também a primeira superfície visível de acompanhamento,
-o que o torna o consumidor natural das métricas do item E.
+**Em paralelo, quando houver GPU livre:** `focus --relens` sobre as **129 claims sem
+julgamento** (12,4% do corpus, peso zero), e reenfileirar os **2 papers** que morreram no
+dead-letter durante o pico de memória de 4/9.
 
-**5. Item 12 — Fase 2, a destilação.** Último dos construtivos porque é o mais dependente:
-precisa de corpus de achados verificados (que só a operação produz) **e** do goldset do item
-11. Começar antes é treinar sobre pouco dado e não ter como medir o estrago.
-
-**6. Item 8 — `sync/publish` + Space.** Explicitamente último, e privado. A razão já estava
-registrada e não mudou: o banco agrega memória de `chat` e `recon` através de focos, então o
-export tem de excluí-la. Publicar algo que ainda muda de forma é a ordem errada.
-
-**Fora da fila:** `grade` virar aresta. Continua sem consumidor — existe um foco e uma
-escala. Entra quando aparecer um segundo foco com escada de evidência diferente, e
-`claims_off_scale` existe para tornar esse dia visível em vez de silencioso.
+**Fora da fila:** `grade` virar aresta. Continua sem consumidor — um foco, uma escala — e
+`claims_off_scale` existe para tornar visível o dia em que passar a ter.
 
 As Fases A–D vêm de um plano aprovado, com decisões, custos e mutações por fase:
 `~/.claude/plans/estou-pensando-numa-forma-iridescent-melody.md`. A tese em uma linha: **um
 banco, um corpus, uma memória — o foco é uma lente sobre esse cérebro, não uma partição dele.**
+
+---
+
+### Item G — `SEARCH_AGAIN` não busca nada
+
+**INVESTIGADO E DIAGNOSTICADO** (8/9, sobre os dados da primeira operação). A hipótese
+inicial — "o juiz está severo demais" — está ERRADA. O juiz está certo; o defeito é a
+montante e é estrutural.
+
+**Os fatos, medidos.** 15 rodadas de julgamento, 8 perguntas, zero findings:
+
+```
+piso de citações satisfeito : 15/15  (3 a 7 artigos distintos; mínimo 2)
+juiz aprovou                :  0/15
+blocked_reason              : NULL em todas as 15
+```
+
+O piso determinístico passou em todas, com folga. Quem barra é sempre o juiz.
+
+**Por que o juiz está certo.** Inspecionei as 10 claims que ele viu na pergunta #1 — *"a
+dieta cetogênica reduz ansiedade em bipolar I sem induzir instabilidade?"*. Quatro tinham
+peso 0,85 (`rct` + `direct`), duas 0,55, e **nenhuma mencionava dieta cetogênica**. As de
+0,55 eram sobre *transtorno alimentar*, que a busca vetorial trouxe por vizinhança
+semântica com "dieta". Recusar foi factualmente correto:
+`addresses_question_directly = false`.
+
+Confirmado no corpus: **zero ocorrências** de `ketogenic`, `ketosis` ou `ketone` em 375
+fontes, 863 chunks e 1042 claims. A palavra `diet` aparece uma vez.
+
+**O DEFEITO: o laço de busca não fecha.** Os três `return RoundResult(Action.SEARCH_AGAIN,
+...)` em `answer.py` **só retornam**. Nenhum enfileira `harvest_query`. E existem apenas
+dois produtores de `harvest_query` no código: `harvest_sweep` (as 19 queries fixas do
+perfil) e `pursue_speculation` (as hipóteses). **Nenhum vem de pergunta.**
+
+O `targets` da pergunta — no caso da #1, literalmente `"metabolic / dietary (ketogenic,
+fasting)"` — é usado para deduplicar e para consultar cobertura. Nunca para buscar.
+
+O laço real é:
+
+> juiz recusa → `SEARCH_AGAIN` → **ninguém busca** → corpus não muda → a guarda "corpus
+> inalterado" dispara → não consome rodada → repete para sempre
+
+Uma pergunta cujo material o corpus não tem **nunca vai obtê-lo**. As 11 perguntas `OPEN`
+ao fim da operação não estavam esperando trabalho: estavam em impasse permanente.
+
+O nome da ação é uma promessa que o código não cumpre — mesma classe do `lithium run` que
+nunca drenava e do `Strategy.sources` que ninguém lia.
+
+**O que NÃO é o problema.** A pergunta é legítima: dieta cetogênica em bipolar tem
+literatura no PubMed. Ela nunca foi buscada porque nenhuma das 19 queries fixas menciona
+dieta e o `pursue` só persegue hipóteses. E a web aberta (item F) ajudaria, mas não é o
+conserto: o material que falta é literatura indexada, que o PubMed tem e a quem o sistema
+não perguntou.
+
+**O conserto.** Ligar o produtor que falta: `SEARCH_AGAIN` com um `missing` nomeado
+enfileira `harvest_query` derivada daquele `missing`, como `pursue_speculation` já faz com
+hipóteses. A máquina de busca dirigida está construída e testada — só não está ligada a
+este produtor.
+
+Cuidados que o conserto precisa respeitar:
+- **Dedup por `missing`**, senão a mesma lacuna vira busca a cada rodada de cada pergunta.
+- **Privacidade**: `queries_for` do batedor só usa pergunta de `origin='auto'`, porque a
+  query vai a terceiro. Aqui a fonte é o PubMed e a decisão pode diferir — mas tem de ser
+  decisão, não omissão.
+- **Não afrouxar o juiz.** Se o conserto "funcionar" mexendo no piso dele, é a assinatura
+  de MF5, não uma entrega.
+
+**CONSERTADO em 8/9, e o que VERIFICAR NA PRÓXIMA OPERAÇÃO.** O conserto só se prova
+rodando — nenhum teste com dublê mostra o laço fechando sobre corpus real. Os sinais, em
+ordem de força:
+
+1. **`answer_rounds`: o fingerprint MUDA entre rodadas da mesma pergunta.** Hoje nunca
+   muda — o da pergunta #1 ficou em `155,156,157,167,168,169,170,360,361,416` do primeiro
+   dia até o fim, com o corpus indo de 213 para 1042 claims. Se continuar imóvel, a busca
+   de lacuna não está trazendo material que a recuperação alcance, e o conserto é
+   cosmético.
+
+2. **Tarefas com `label` começando em `gap:` aparecem em `tasks`**, e as fontes que elas
+   colhem entram em `sources`. Zero delas significa que o produtor não disparou.
+
+3. **As perguntas `OPEN` param de acumular.** Ao fim da primeira operação eram 11, todas
+   em impasse. Espera-se que passem a ANSWERED_AUTO, ou a ESCALATED por rodadas
+   esgotadas — as duas são saídas; ficar `OPEN` para sempre não é.
+
+4. **`v_addresses` deixa de ser o campo que reprova.** Com os conjuntos agora gravados, dá
+   para ver se a recusa migra de "não responde à pergunta" para "evidência fraca" — o que
+   seria progresso real, e não um juiz afrouxado.
+
+5. **A precisão do ATM do PubMed sobre prosa.** Comparar `chunks_sterile` das corridas de
+   `label='gap:*'` contra as de `harvest_sweep`. Se as de lacuna forem muito mais estéreis,
+   a prosa do `missing` não vira query boa e o próximo passo é a conversão por LLM.
+
+**Critério de recusa:** se (1) e (2) valerem mas (3) não — buscas acontecendo, corpus
+crescendo, perguntas ainda em impasse —, então o problema não era o produtor de busca e a
+investigação recomeça no juiz. Registrar isso em vez de afrouxar o piso dele.
+
+**O que a instrumentação ganhou nesta investigação.** `answer_rounds` gravava só a
+CONJUNÇÃO de `_is_sufficient` (quatro condições), então as 15 recusas ficaram sem causa
+identificável e a resposta teve de ser inferida lendo claims à mão. Agora grava os
+conjuntos: `v_sufficient`, `v_addresses`, `v_n_sources`, `v_sources_agree`, `v_missing`.
+Um agregado que não decompõe é o mesmo defeito do `build_state` — cometido aqui por mim.
+
+---
+
+### Item H — o pipeline perde trabalho sob pressão, e o log não sobrevive
+
+Duas fragilidades operacionais que a primeira operação real expôs. Nenhuma métrica do
+METRICS.md as cobre, porque ele mede qualidade de conhecimento, não robustez.
+
+**Não existe contrapressão.** `worker.concurrency = 3`, fixo, e `runner.py` não tem
+nenhuma noção de memória. MEDIDO em 4/9: o `pursue` enfileirou 54 extrações de uma vez, o
+swap chegou a **14.898 de 15.360 MB (97%)**, a memória livre a 0,14 GB, e o servidor de
+embeddings passou a devolver `500` — não por bug, mas porque suas páginas foram paginadas
+e não voltavam sob a pressão.
+
+Resultado: **2 tarefas `fetch_source` morreram** após 3 tentativas. Dois papers não
+indexados. Um pipeline que PERDE trabalho sob pressão em vez de ir mais devagar é
+fragilidade estrutural — e num Mac de 16 GB com um 12B, pressão de memória é a condição
+normal, não a exceção.
+
+O conserto não é subir `max_attempts`: é a concorrência ceder quando a memória aperta.
+
+**O log não tem handler de arquivo.** `_setup_logging` (cli.py) instala só
+`RichHandler(console)`. O `daemon.log` da primeira operação existe porque foi redirigido à
+mão com `nohup`; quem rodar `lithium serve` normalmente perde tudo ao fechar o terminal.
+
+Já custou uma vez: a taxa dos portões das cinco primeiras fontes se perdeu num reboot que
+limpou o `/tmp`, e está registrada como "buraco declarado" em `extraction_runs`. É a mesma
+raiz do problema que motivou aquela tabela — o NÃO indo para um logger efêmero.
+
+**Duas menores, anotadas sem desenvolver:** as perguntas `OPEN` acumulam sem mecanismo de
+aposentadoria (11 ao fim da operação, sem como marcar "comprovadamente sem resposta na
+literatura"); e a notificação por `osascript` devolve 0 apareça o toast ou não, então
+"escalar para o humano" — o único canal de saída do sistema — não tem garantia de entrega.
+
+---
+
+### Item F — a web aberta como canal genérico
+
+**Não implementar durante a operação em andamento.** Ligar o batedor no meio de uma janela
+de medição introduz uma fonte nova de material no meio da série, e a primeira semana
+deixaria de responder "o que o sistema faz sozinho com o corpus que tem".
+
+**Por que ele é a peça que falta ao agnosticismo.** As Fases A–D tiraram o domínio do
+código, dos prompts e do molde de perfil. Sobrou um lugar: o **PubMed é a única fonte de
+evidência aprovada**, e ele é específico de biomedicina. Um foco sobre ligas metálicas
+teria o pipeline inteiro agnóstico e nenhuma fonte de onde colher.
+
+A Fase D já resolveu a metade estrutural — `sources_registry` aceita fonte nova sem código
+e o `HttpSource` cobre qualquer API JSON com campos nomeados. O que falta é o canal que
+não exige API nenhuma: a web aberta, que serve a qualquer assunto por construção.
+
+**O que a tarefa é.** Habilitar `[recon] enabled = true` com o teto diário cheio, e operar
+por uma janela para medir o que ele traz. A configuração já existe inteira e está medida:
+
+| parâmetro | valor |
+|---|---|
+| `max_calls_per_day` | 20 buscas |
+| `max_calls_per_sweep` | 6 |
+| `max_pages_per_day` | 8 leituras |
+| `max_robots_per_day` | 12 |
+| `expire_after_days` | 14 (descoberta pendente expira) |
+| `respect_robots` | true |
+
+**Pré-requisitos que não são código:** uma chave da Brave — é a **única parte do sistema
+com fatura** — e um `contact` para o User-Agent, porque acesso automatizado se identifica e
+uso pessoal não relaxa ToS de terceiro.
+
+**O que NÃO muda, e é o ponto.** Uma descoberta da web nunca vira claim: o identificador
+atravessa, a prosa não. Aprovar uma descoberta de tipo `source` cria uma **proposta** no
+registro, não uma fonte ativa. As três travas da Fase C continuam valendo, e ligar o
+batedor não as afrouxa — ver a seção da Fase C.
+
+**O que medir na janela:** quantas descobertas por dia, a fração que você aprova, e quantas
+viram artigo colhido de fato. Se a taxa de aprovação for baixa, o custo por unidade de
+conhecimento não se justifica e a recusa é uma entrega válida — como foi no item 9.
 
 ---
 
