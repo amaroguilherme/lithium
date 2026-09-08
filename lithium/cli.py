@@ -14,6 +14,8 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from logging.handlers import RotatingFileHandler
+
 from rich.logging import RichHandler
 from rich.table import Table
 
@@ -37,12 +39,53 @@ depender de `bipolar-tag` existir."""
 ConfigOpt = Annotated[Path | None, typer.Option("--config", "-c", help="Caminho do config TOML")]
 
 
-def _setup_logging(verbose: bool) -> None:
+def _setup_logging(verbose: bool, log_dir: Path | None = None) -> None:
+    """Console sempre; ARQUIVO quando há onde escrever.
+
+    O handler de arquivo faltava, e isso já custou dado real: o `daemon.log` da primeira
+    operação (1-8/9) só existiu porque foi redirigido à mão com `nohup`. Quem roda
+    `lithium serve` normalmente perde tudo ao fechar o terminal — e a taxa dos portões das
+    cinco primeiras fontes se perdeu num reboot que limpou o `/tmp`, ficando registrada
+    como "buraco declarado" em `extraction_runs`.
+
+    É a mesma raiz que motivou aquela tabela: informação de diagnóstico indo para um
+    logger efêmero. A tabela resolveu o caso das rejeições de extração; isto resolve o
+    resto.
+
+    Rotação por tamanho, não por tempo: o volume depende da carga, não do calendário —
+    uma varredura grande escreve mais num dia que uma semana ociosa. 5 MB × 3 arquivos
+    cobre semanas de operação normal e tem teto previsível.
+
+    `redact_secrets` NÃO cobre o arquivo automaticamente: as duas linhas de `runner.py`
+    que redigem o erro escrevem no logger, então o que chega aqui já passou por ela. O
+    silenciamento de `httpx` (logo abaixo) é o que impede a URL com `api_key` de chegar.
+    """
+    handlers: list[logging.Handler] = [
+        RichHandler(console=console, rich_tracebacks=True, show_path=False)
+    ]
+    if log_dir is not None:
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            arquivo = RotatingFileHandler(
+                log_dir / "lithium.log", maxBytes=5 * 1024 * 1024, backupCount=3,
+                encoding="utf-8")
+            arquivo.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
+            handlers.append(arquivo)
+        except OSError as exc:
+            # Não pode derrubar o comando: sem disco, ou sem permissão, o console basta.
+            console.print(f"[yellow]log em arquivo desabilitado:[/yellow] {exc}")
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(message)s",
         datefmt="%H:%M:%S",
-        handlers=[RichHandler(console=console, rich_tracebacks=True, show_path=False)],
+        handlers=handlers,
+        # `force=True` é NECESSÁRIO, não zelo: `basicConfig` é NO-OP quando o root logger
+        # já tem handler. Sem isto, qualquer coisa que configure logging antes — uma
+        # biblioteca, outro comando no mesmo processo, o próprio pytest — faz esta função
+        # criar o arquivo (o `RotatingFileHandler` abre na construção) e nunca instalá-lo.
+        # O sintoma é o pior possível: arquivo de log existindo e VAZIO. Pego por teste.
+        force=True,
     )
     # O httpx loga a URL COMPLETA em INFO, e `PubMedSource._params` injeta `api_key`
     # como query param: a credencial da NCBI iria para o console e para qualquer handler
@@ -116,8 +159,10 @@ def serve(
     """Sobe os llama-server e o pool de workers. Ctrl-C encerra."""
     from lithium.daemon import Daemon, MissingModel
 
-    _setup_logging(verbose)
+    # Config PRIMEIRO: o diretório de log vem dela. Se a carga falhar, o traceback do
+    # typer basta — e um log em arquivo que não sabe onde escrever não serve de nada.
     cfg = load_config(config)
+    _setup_logging(verbose, cfg.data_dir)
     daemon = Daemon(cfg, manage_servers=not external_servers)
 
     try:
@@ -138,8 +183,10 @@ def run(
     """Drena a fila uma vez e sai. Para desenvolvimento e execução manual."""
     from lithium.daemon import Daemon
 
-    _setup_logging(verbose)
+    # Config PRIMEIRO: o diretório de log vem dela. Se a carga falhar, o traceback do
+    # typer basta — e um log em arquivo que não sabe onde escrever não serve de nada.
     cfg = load_config(config)
+    _setup_logging(verbose, cfg.data_dir)
 
     async def _drain() -> None:
         await Daemon(cfg, manage_servers=False).run(drain=True, drain_max=max_tasks)
