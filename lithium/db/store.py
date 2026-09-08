@@ -382,6 +382,13 @@ class Store:
         # saiu e não diz quando nem por quê, então "o modelo reinseriu a lição que a
         # pessoa negou" — a assinatura mais direta de delírio que o plano captura — não
         # tem como ser medida. NÃO reconstrói: a retirada é um evento.
+        # Os conjuntos de `_is_sufficient`, que a primeira versão de `answer_rounds` não
+        # gravava. Ver o comentário na tabela: sem eles, "o juiz recusou" não diz por quê.
+        ("answer_rounds", "v_sufficient", "INTEGER"),
+        ("answer_rounds", "v_addresses", "INTEGER"),
+        ("answer_rounds", "v_n_sources", "INTEGER"),
+        ("answer_rounds", "v_sources_agree", "INTEGER"),
+        ("answer_rounds", "v_missing", "TEXT"),
         ("memories", "retired_at", "TEXT"),
         ("memories", "retired_by", "TEXT"),
         ("claims", "supporting_quote", "TEXT"),

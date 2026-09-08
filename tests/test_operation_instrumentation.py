@@ -206,3 +206,97 @@ async def test_the_reflect_handler_persists_the_tick(store, monkeypatch, tmp_pat
         "SELECT COUNT(*) AS n FROM reflect_ticks").fetchone()["n"] == 1, (
         "o tique de reflexão rodou e não deixou linha: MF6 volta a ser impossível"
     )
+
+
+# ═══════════════════════ MF5: os CONJUNTOS, não só a conjunção
+
+
+async def test_a_refusal_records_which_condition_failed(store, profile, monkeypatch):
+    """`_is_sufficient` exige QUATRO condições; gravar só o resultado não diz qual reprovou.
+
+    MEDIDO na primeira operação real: 15 rodadas recusadas, `blocked_reason` NULL em todas,
+    e a resposta só saiu inspecionando as 10 claims à mão — elas tinham peso até 0,85 e
+    NENHUMA mencionava o tópico perguntado, o que aponta `addresses_question_directly`.
+    Sem os conjuntos, essa inferência não é reproduzível a partir do banco.
+
+    MUTAÇÃO: voltar a gravar só `judge_sufficient`, com as cinco colunas em NULL.
+    """
+    from lithium.llm.schemas import SufficiencyVerdict
+    from lithium.pipeline.answer import Answerer
+
+    qid = int(store.conn.execute(
+        "INSERT INTO questions(focus_id, text, kind, status, origin, priority) "
+        "VALUES(1,'q','FACTUAL','OPEN','auto',0.5) RETURNING id").fetchone()["id"])
+
+    # o caso da operação: evidência FORTE que não responde a pergunta
+    veredito = SufficiencyVerdict(
+        sufficient=True, n_independent_sources=4,
+        addresses_question_directly=False, sources_agree=True,
+        missing="nada sobre o tópico perguntado", blocked_reason=None)
+
+    class FakeRetriever:
+        def __init__(self, *a, **k):
+            pass
+
+        async def search_claims(self, *a, **k):
+            return []
+
+    import lithium.pipeline.answer as A
+    monkeypatch.setattr(A, "Retriever", FakeRetriever)
+    a = Answerer(store, object(), embedder=None, profile=profile)
+
+    async def _judge(*args, **kw):
+        return veredito
+
+    monkeypatch.setattr(a, "_judge", _judge)
+    await a.round(qid)
+
+    r = store.conn.execute(
+        "SELECT judge_sufficient, v_sufficient, v_addresses, v_n_sources, "
+        "       v_sources_agree, v_missing FROM answer_rounds").fetchone()
+    assert r["judge_sufficient"] == 0, "a conjunção deveria reprovar"
+    assert r["v_sufficient"] == 1, (
+        "o conjunto `sufficient` não foi gravado — a recusa fica sem causa identificável"
+    )
+    assert r["v_addresses"] == 0, "o campo que de fato reprovou não foi distinguido"
+    assert r["v_n_sources"] == 4, "a contagem DO JUIZ não foi gravada; MF5 precisa dela"
+    assert r["v_missing"] == "nada sobre o tópico perguntado"
+
+
+async def test_an_unavailable_judge_leaves_the_conjuncts_null(store, profile, monkeypatch):
+    """Juiz indisponível não é juiz que reprovou. Gravar 0 nos conjuntos confundiria
+    "ele disse não" com "ele não disse nada", e a taxa de recusa passaria a incluir falha
+    de infraestrutura.
+
+    MUTAÇÃO: gravar `int(False)` em vez de `None` quando `verdict is None`.
+    """
+    from lithium.pipeline.answer import Answerer
+
+    qid = int(store.conn.execute(
+        "INSERT INTO questions(focus_id, text, kind, status, origin, priority) "
+        "VALUES(1,'q2','FACTUAL','OPEN','auto',0.5) RETURNING id").fetchone()["id"])
+
+    class FakeRetriever:
+        def __init__(self, *a, **k):
+            pass
+
+        async def search_claims(self, *a, **k):
+            return []
+
+    import lithium.pipeline.answer as A
+    monkeypatch.setattr(A, "Retriever", FakeRetriever)
+    a = Answerer(store, object(), embedder=None, profile=profile)
+
+    async def _sem_juiz(*args, **kw):
+        return None
+
+    monkeypatch.setattr(a, "_judge", _sem_juiz)
+    await a.round(qid)
+
+    r = store.conn.execute(
+        "SELECT judge_sufficient, v_sufficient, v_addresses FROM answer_rounds "
+        " WHERE question_id = ?", (qid,)).fetchone()
+    assert r["judge_sufficient"] == 0
+    assert r["v_sufficient"] is None and r["v_addresses"] is None, (
+        "juiz ausente foi gravado como juiz que reprovou"
+    )

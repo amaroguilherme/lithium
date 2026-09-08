@@ -692,7 +692,25 @@ CREATE TABLE IF NOT EXISTS answer_rounds (
     round             INTEGER NOT NULL,
     n_hits            INTEGER NOT NULL,          -- claims recuperadas
     n_articles        INTEGER NOT NULL,          -- artigos DISTINTOS entre elas
+    -- A CONJUNÇÃO, e os CONJUNTOS. `_is_sufficient` exige quatro condições, e gravar só o
+    -- resultado torna impossível saber qual reprovou — foi exatamente o que aconteceu na
+    -- primeira operação: 15 rodadas recusadas, `blocked_reason` NULL em todas, e a
+    -- resposta só saiu inspecionando as claims à mão. Um agregado que não decompõe é o
+    -- mesmo defeito do `build_state`, cometido aqui por mim.
     judge_sufficient  INTEGER NOT NULL CHECK (judge_sufficient IN (0, 1)),
+    -- `sufficient` cru: o booleano que o juiz marcou.
+    v_sufficient      INTEGER CHECK (v_sufficient IN (0, 1)),
+    -- "isto responde à PERGUNTA?" — distinto de "a evidência é forte?". Na operação de
+    -- 1-8/9 este é o campo que provavelmente reprovou: as 10 claims da pergunta #1 tinham
+    -- peso até 0,85 e NENHUMA mencionava o tópico perguntado.
+    v_addresses       INTEGER CHECK (v_addresses IN (0, 1)),
+    -- A contagem do JUIZ, que é o outro lado de MF5: comparar com `n_articles`, que é
+    -- `COUNT(DISTINCT article_key)` em SQL. Divergência entre as duas é o sinal.
+    v_n_sources       INTEGER,
+    v_sources_agree   INTEGER CHECK (v_sources_agree IN (0, 1)),
+    -- O que o juiz disse faltar, na íntegra. É o texto que distingue "o corpus não tem"
+    -- de "a recuperação não trouxe".
+    v_missing         TEXT,
     floor_ok          INTEGER NOT NULL CHECK (floor_ok IN (0, 1)),
     -- NULL quando o juiz não bloqueou. Quando bloqueou, qual dos campos do veredito.
     blocked_reason    TEXT,
