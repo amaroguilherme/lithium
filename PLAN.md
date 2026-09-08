@@ -623,6 +623,59 @@ uma vez não precisa ser perguntado de novo.
 
 **Gatilho:** ≥300 exemplos verificados. Não antes.
 
+**DECIDIDO (8/9): UM adapter só, treinado no mix de TODOS os focos, destilando a
+DISCIPLINA — não o domínio.**
+
+A pergunta que forçou a decisão: se o maquinário é agnóstico a foco, o que uma LoRA
+treinada num foco faz com os outros? E o gatilho de treino deve ser "N pares" ou "foco
+encerrado"?
+
+**As duas opções óbvias foram RECUSADAS, cada uma por um motivo.**
+
+*Treinar quando um foco atinge 300 pares* é exatamente o que assa o domínio nos pesos: o
+modelo fica melhor em bipolar e pior em qualquer outra coisa. E o corpus continua
+crescendo, então o adapter nasce obsoleto e cada retreino custa um gate.
+
+*Treinar só quando o foco é aposentado* se refuta sozinha: se a LoRA aprende vocabulário do
+domínio, um adapter de foco morto é **inútil para todos os focos vivos** — eles falam de
+outra coisa. Pagaria-se o treino para produzir algo que ninguém usa.
+
+**Por que a disciplina é destilável e o domínio não.** Três dos quatro `kind` do dataset
+não são conhecimento de domínio:
+
+| tipo | peso | o que ensina | transfere? |
+|---|---|---|---|
+| chunk → claim extraída | 1,0 | o FORMATO da extração | sim |
+| probes de segurança | 2,0 | quando alertar (o maquinário é agnóstico) | sim |
+| pergunta → finding com citações | 1,0 | como citar, como estruturar | sim |
+| pergunta escalada → resposta humana | 3,0 | **quando dizer "não sei"** | sim |
+
+Nome de fármaco não transfere. Formato de citação, comportamento de recusa e disciplina de
+alerta transferem — e são o que este projeto é.
+
+**O GATILHO, em consequência: `N exemplos cobrindo M focos`, não `N exemplos`.** Com um
+foco só **não se treina**, e isso é conclusão honesta, não limitação a contornar. O
+vocabulário de domínios diferentes se cancela como ruído no treino; o que sobrevive é o
+invariante.
+
+**Três coisas que essa decisão reconcilia:**
+
+1. **`lora_path` GLOBAL está correto.** Eu havia chamado de defeito por ser único em
+   `[llm]` em vez de campo do perfil. Não é: um adapter que destila disciplina vale para
+   qualquer foco, e por-foco seria o erro.
+2. **`focus_id` em `training_examples` continua NECESSÁRIO**, por outra razão: balancear o
+   mix (não deixar um foco dominar) e permitir hold-out **por foco** além de por pergunta —
+   senão mede-se transferência testando no mesmo domínio em que treinou. A coluna não
+   existe hoje; acrescentá-la depois de 300 exemplos é migração sobre dado que não dá para
+   reclassificar, então ela vem ANTES do construtor.
+3. **Explica por que o item 12 está longe na fila, e o pré-requisito não é técnico:** ele
+   depende de **existir um segundo foco em operação**. Nenhuma quantidade de dias rodando
+   em bipolar destrava um adapter agnóstico.
+
+**A alternativa registrada e não escolhida:** um adapter POR foco é defensável, mas assume
+que o sistema é uma coleção de especialistas em vez de um pesquisador agnóstico com um
+método. É escolha de identidade do projeto, e foi decidida contra em 8/9.
+
 **O que a LoRA realmente aprende.** Formato, vocabulário do domínio e estilo de
 raciocínio — **não fatos**. Fato continua vindo do RAG com citação. Um 12B tunado em
 centenas de pares tende a alucinar *mais* se você esperar que memorize literatura. O
@@ -679,13 +732,13 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | 9 | Demais adapters — **RECUSADOS por medição**; entregou 4 bugs vivos | ✅ |
 | 10 | `report` semanal + scheduler completo (`hypothesis` = `explore --show`) | ✅ |
 | 11 | `safety/` + goldset + safety probes | ✅ `eval/*.toml` |
-| 12 | Fase 2 — dataset, QLoRA Kaggle, adapter GGUF, gate | ⏳ |
+| 12 | Fase 2 — **um adapter só, disciplina não domínio**; gatilho = N exemplos sobre M focos | ⏳ exige 2º foco |
 | F0 | **Instrumentação + os dois tetos estourados** | ✅ |
 | F1 | **Consentimento, as três travas, precedência e `safety/`** | ✅ |
 | F2 | **O portão de `pattern`/`dead_end`** | ✅ |
 | F3 | **Recuperação não-constante, bound em memórias, contra-evidência** | ✅ |
 | F4 | **Notícia do corpus como fato + portão de contato com a literatura** | ✅ |
-| F5 | Reflexão de profundidade 1 | ⏳ destravada: o relógio começa quando o daemon subir |
+| F5 | Reflexão de profundidade 1 | ✅ rodou 2× na operação de 1-8/9; 4 lições, 1 `dead_end` refutado por evidência |
 | F6 | **Portão de citação + `seeking` persistido** (aresta hipótese→hipótese RECUSADA) | ✅ |
 | 13 | Enxugar a camada de prompts | ➡️ **absorvido pela Fase B** |
 | 14 | Objetivo configurável | ➡️ **resolvido e substituído pelas Fases A–D** |
@@ -695,8 +748,9 @@ decepcionar: merge fp16 + requantização, feito inteiramente no Kaggle.
 | **D** | **Registro de fontes + adapter genérico** — pagou a dívida de fiação do item 9 | ✅ |
 | **E** | **Plano de métricas** — o que medir para acompanhar a evolução do modelo | ✅ [METRICS.md](METRICS.md) |
 | **F** | **Ligar a busca diária na web aberta** no teto de buscas/dia — é o canal genérico que o PubMed não é | ⏳ |
-| **G** | **`SEARCH_AGAIN` não busca nada** — o juiz pede material e ninguém enfileira busca; investigado e diagnosticado | ⏳ **PRÓXIMO** (conserto) |
-| **H** | **Contrapressão e log durável** — o pipeline perde trabalho sob pressão de memória, e o log não sobrevive ao processo | ⏳ |
+| **G** | **`SEARCH_AGAIN` não busca nada** — o laço de busca não fechava | 🔧 consertado 8/9, **aguarda validação em operação** |
+| **H** | **Contrapressão e log durável** — concorrência cede na pressão (AIMD); log em arquivo com rotação | ✅ |
+| **I** | **App iOS de uso pessoal** — conversar, ligar/desligar, aposentar e criar focos | ⏳ penúltimo |
 
 ### A ordem do pendente
 
@@ -704,31 +758,33 @@ Reescrita depois da primeira operação real (168h, 8/9). Os passos que a versã
 listava — conserto do `intervention`, item E, F5, item 11 — foram **entregues**, e a
 operação que os destravou também produziu o item G, que passa à frente de tudo.
 
-**1. Item G — ligar o produtor de busca que falta.** JÁ INVESTIGADO: o juiz está certo, e
-`SEARCH_AGAIN` não enfileira busca nenhuma. Resta o conserto, que é fiar um produtor de
-`harvest_query` a partir do `missing` do veredito. Trava três coisas: `findings` em zero, o
-dataset do item 12 em zero, e o sistema reduzido a gerador de perguntas em impasse.
-
-**2. Item F — ligar a busca na web aberta.** O bloqueio ("não implementar durante a
+**1. Item F — ligar a busca na web aberta.** O bloqueio ("não implementar durante a
 operação") EXPIROU: a janela fechou em 8/9. E a operação produziu o argumento empírico a
 favor dele — as buscas dirigidas do `pursue` esgotaram o PubMed (`UR-174` devolveu 1
-resultado), então o canal genérico é o que resta. Depende de você: chave da Brave, que tem
-fatura.
+resultado), então o canal genérico é o que resta. Depende de você só por CADASTRO: o tier
+grátis da Brave dá ~1.000 buscas/mês e o teto configurado é 20/dia (~600/mês).
 
-**3. Item H — contrapressão e log durável.** Vem antes do dataset porque toda operação
-futura neste hardware passa por ele: sem contrapressão, cada pico de trabalho perde tarefas.
+**2. Uma segunda operação, para validar os itens G e H.** O conserto do laço de busca está
+commitado e coberto por teste, mas nenhum teste com dublê mostra o laço fechando sobre
+corpus real. Os cinco sinais de aceite e o critério de RECUSA estão na seção do item G.
 
-**4. O construtor do dataset de treino.** `training_examples` tem **zero escritores** — a
+**3. `focus_id` em `training_examples`, e depois o construtor.** A coluna vem PRIMEIRO:
+acrescentá-la depois de 300 exemplos é migração sobre dado que não dá para reclassificar.
+Ver a decisão de 8/9 na Fase 2 — um adapter só, e `focus_id` serve para balancear o mix e
+para o hold-out por foco. O construtor: `training_examples` tem **zero escritores** — a
 tabela está vazia desde o dia 1, e o gatilho do item 12 é 300 exemplos verificados. Sem
 este construtor, o item 12 não avança nem com um ano de operação. As duas respostas humanas
 de 5/9 já estão em `questions` esperando por ele.
 
-**5. O resto da instrumentação de METRICS.md.** MF2 a MF6 estão especificadas; só MF1 e as
+**4. O resto da instrumentação de METRICS.md.** MF2 a MF6 estão especificadas; só MF1 e as
 peças de MF5/MF6 foram construídas. Falta `claim_anchor` (congela o referente externo de
 MF2/MF3) e a leitura de MF4.
 
-**6. Item 12 — a destilação.** Depende do passo 3 e de mais operação. Dois dos três
+**5. Item 12 — a destilação.** Depende de um SEGUNDO FOCO, não de mais operação — ver a decisão de 8/9 na Fase 2: um adapter só, e com um foco não se treina. Dois dos três
 critérios de gate já têm arquivo (`eval/*.toml`); falta fidelidade de citação.
+
+**6. Item I — o app iOS.** Penúltimo, e a razão é que ele depende de uma peça que não
+existe: uma API. Ver a seção do item I.
 
 **7. Item 8 — `sync/publish` + Space.** Último e privado.
 
@@ -846,6 +902,58 @@ Um agregado que não decompõe é o mesmo defeito do `build_state` — cometido 
 
 ---
 
+### Item I — app iOS de uso pessoal
+
+**O que se quer:** conversar com o modelo, ligar e desligar focos, aposentar focos, e criar
+focos novos — do telefone.
+
+**A peça que não existe é uma API.** Verificado: zero superfície HTTP no projeto. Nenhum
+FastAPI, Flask ou aiohttp; nenhuma dependência de servidor web. Tudo hoje é CLI escrevendo
+direto no SQLite. Um app iOS não pode falar com isso, então **o trabalho real deste item é
+a API, não o app** — e é ela que precisa ser desenhada com cuidado.
+
+**Quatro problemas que o app herda, e nenhum é de UI.**
+
+**1. Rede.** O daemon roda no Mac. Descobrimos em 8/9, tentando o caminho oposto, que a
+LAN doméstica tem **isolamento de clientes** — só o gateway responde — e que a VPN
+corporativa bloqueia a rede local por completo. Um telefone no mesmo Wi-Fi terá o mesmo
+problema. As saídas conhecidas: cabo (não serve para telefone), desligar o isolamento no
+roteador, ou uma rede sobreposta tipo Tailscale. Nenhuma é decisão de código.
+
+**2. Autenticação.** A API exporia criar e aposentar focos, e conversar. Sem auth, qualquer
+coisa na rede faz isso. Um segredo compartilhado em `config.local.toml` (que é gitignored)
+é o mínimo defensável; o teto de complexidade é baixo porque o uso é pessoal, mas zero
+não é opção.
+
+**3. O consentimento do chat não pode ser diluído.** O `chat` pede confirmação antes de
+gravar qualquer coisa sobre VOCÊ — é o regime que distingue "o sistema aprende sobre o
+próprio trabalho" de "o sistema aprende sobre você". Num app é tentador transformar isso em
+toast que se descarta com o polegar, e aí a confirmação vira ruído treinado, exatamente o
+que o desenho evita. A confirmação tem de custar um gesto deliberado.
+
+**4. Criar foco de um telefone é o requisito mais difícil, e talvez não deva ser atendido
+como pedido.** `focus --new` copia `focuses/_reference/` — **quatro arquivos TOML** — e o
+perfil se recusa a carregar enquanto `scaffold_pending` existir, de propósito: preencher só
+o `target` produz um foco que MENTE (medido: com alvo cardiológico e o resto intocado, o
+prompt de extração anunciava transtorno bipolar).
+
+Editar quatro TOML num telefone é hostil. Duas saídas honestas: (a) o app cria só o
+esqueleto e nomeia, e o preenchimento continua no Mac; (b) o schema do perfil vira
+formulário guiado, o que é trabalho de verdade e transforma a estrutura do TOML em contrato
+de UI. Escolher (a) primeiro e medir se (b) se justifica.
+
+**Uma alternativa que evita a App Store inteira.** Um PWA servido pelo próprio daemon —
+mesma API, sem assinatura de app, sem TestFlight, sem provisioning. Para uso pessoal isso
+cobre quase tudo que um app nativo cobriria, e o custo de manutenção é uma fração. Vale
+descartar explicitamente antes de escrever Swift.
+
+**Por que é penúltimo.** Ele é superfície de acesso, não capacidade nova: nada que o app
+faça é algo que o sistema já não faça. O que o precede na fila resolve se o sistema
+funciona; este resolve o conforto de operá-lo. E ele fica antes do item 8 porque publicar
+(item 8) é irreversível de um jeito que um app local não é.
+
+---
+
 ### Item H — o pipeline perde trabalho sob pressão, e o log não sobrevive
 
 Duas fragilidades operacionais que a primeira operação real expôs. Nenhuma métrica do
@@ -906,9 +1014,35 @@ por uma janela para medir o que ele traz. A configuração já existe inteira e 
 | `expire_after_days` | 14 (descoberta pendente expira) |
 | `respect_robots` | true |
 
-**Pré-requisitos que não são código:** uma chave da Brave — é a **única parte do sistema
-com fatura** — e um `contact` para o User-Agent, porque acesso automatizado se identifica e
-uso pessoal não relaxa ToS de terceiro.
+**Pré-requisitos que não são código:** uma chave de busca e um `contact` para o
+User-Agent, porque acesso automatizado se identifica e uso pessoal não relaxa ToS de
+terceiro.
+
+**O custo, com o número exato** (de `config.toml`, mais preciso do que "tem fatura" ou
+"não tem"): Brave Search API cobra **US$ 5 por 1.000 buscas**, com **US$ 5 de crédito
+mensal** — ou seja ~1.000 grátis/mês, ~33/dia. O teto configurado é **20/dia**, deixando
+margem de ~12. **Acima de ~32/dia sai do tier grátis.**
+
+Então: no volume configurado **não gera cobrança**, e é errado tratar isso como decisão
+financeira sua. Mas o **medidor existe**, e é por isso que `recon_budget` debita ANTES do
+GET, guarda o contador no BANCO (não em memória, senão reiniciar o daemon zera a cota), e
+nunca estorna — inclusive quando a leitura da página falha depois da busca já paga. Subir o
+teto acima de 32/dia é que transforma o medidor em fatura.
+
+A dependência real para ligar é **cadastro**, não pagamento.
+
+**E o provedor é TROCÁVEL, não uma restrição da arquitetura.** O `Protocol WebSearcher` tem
+UM método — `web_search(query, *, limit) -> list[WebHit]` — e `BraveSearch` é instanciada em
+exatamente dois lugares (`daemon.py:194`, `cli.py:646`). O campo `config.recon.provider` já
+existe, hoje usado só na mensagem de ajuda. Trocar por Tavily, Exa, Serper ou Kagi é uma
+classe de ~40 linhas mais fiar o `provider` nos dois pontos.
+
+A escolha da Brave tem duas razões registradas, e nenhuma é preferência: **ToS explícito
+para uso programático** (raspar motor de busca viola os termos, e o docstring abre com
+"nada de scraping"), e a credencial em **header** em vez de query param — MEDIDO no repo:
+com chave em query param, `str(httpx.HTTPStatusError)` a carrega e o `Runner` a grava em
+`tasks.error`, que é por que a chave grátis da NCBI já está no banco de qualquer usuário
+que tenha levado um 429.
 
 **O que NÃO muda, e é o ponto.** Uma descoberta da web nunca vira claim: o identificador
 atravessa, a prosa não. Aprovar uma descoberta de tipo `source` cria uma **proposta** no
