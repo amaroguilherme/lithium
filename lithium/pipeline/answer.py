@@ -141,6 +141,16 @@ class Action(StrEnum):
 class RoundResult:
     action: Action
     reason: str = ""
+    missing: str = ""
+    """A lacuna NOMEADA pelo juiz, separada de `reason`.
+
+    `reason` é rótulo legível e assume três valores em `SEARCH_AGAIN`: "corpus inalterado",
+    "juiz indisponível", ou o próprio `missing`. Casar por string para decidir se vale
+    buscar seria frágil — os dois primeiros não são lacuna de corpus e uma busca sobre eles
+    seria ruído. Campo próprio torna a distinção estrutural.
+
+    Vazio quando o juiz não nomeou lacuna. Só com ele preenchido o handler enfileira busca.
+    """
     finding_id: int | None = None
     claim_ids: list[int] = None  # type: ignore[assignment]
 
@@ -282,9 +292,19 @@ class Answerer:
         try:
             self.store.conn.execute(
                 "INSERT INTO answer_rounds(question_id, round, n_hits, n_articles, "
-                "  judge_sufficient, floor_ok, blocked_reason) VALUES(?,?,?,?,?,?,?)",
+                "  judge_sufficient, v_sufficient, v_addresses, v_n_sources, "
+                "  v_sources_agree, v_missing, floor_ok, blocked_reason) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (int(row["id"]), int(row["rounds"]) + 1, len(hits), n_articles,
                  int(verdict is not None and _is_sufficient(verdict)),
+                 # Os CONJUNTOS, um por coluna. `_is_sufficient` exige quatro condições e
+                 # gravar só a conjunção deixou 15 recusas sem explicação na primeira
+                 # operação — a resposta teve de ser inferida lendo as claims à mão.
+                 None if verdict is None else int(verdict.sufficient),
+                 None if verdict is None else int(verdict.addresses_question_directly),
+                 None if verdict is None else int(verdict.n_independent_sources),
+                 None if verdict is None else int(verdict.sources_agree),
+                 None if verdict is None else (verdict.missing or None),
                  int(n_articles >= MIN_CITATIONS),
                  str(verdict.blocked_reason) if verdict is not None
                  and verdict.blocked_reason is not None else None),
@@ -353,6 +373,7 @@ class Answerer:
             "UPDATE questions SET status = 'OPEN' WHERE id = ?", (question_id,)
         )
         return RoundResult(Action.SEARCH_AGAIN, reason=verdict.missing,
+                           missing=(verdict.missing or "").strip(),
                            claim_ids=claim_ids)
 
     # ───────────────────────────────────────────────────────────────── portões

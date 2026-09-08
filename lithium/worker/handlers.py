@@ -18,7 +18,7 @@ from typing import Any
 
 from lithium.notify import backend_for, deliver
 from lithium.notify import watch
-from lithium.pipeline.answer import IN_FLIGHT, Answerer
+from lithium.pipeline.answer import Action, Answerer, IN_FLIGHT
 from lithium.pipeline.explore import Explorer
 from lithium.pipeline.extract import Extractor
 from lithium.pipeline.question import QuestionEngine
@@ -404,6 +404,81 @@ async def answer_question(payload: dict[str, Any], ctx: Context) -> None:
     result = await answerer.round(payload["question_id"])
     log.info("pergunta #%s: %s%s", payload["question_id"], result.action.value,
              f" ({result.reason})" if result.reason else "")
+    if result.action is Action.SEARCH_AGAIN and result.missing:
+        _harvest_the_gap(ctx, int(payload["question_id"]), result.missing)
+
+
+GAP_QUERY_MAX_CHARS = 240
+GAP_LIMIT = 10
+
+
+def _harvest_the_gap(ctx: Context, question_id: int, missing: str) -> None:
+    """Transforma a lacuna que o juiz nomeou numa busca dirigida.
+
+    **O PRODUTOR QUE FALTAVA.** Os três `SEARCH_AGAIN` de `answer.py` só retornavam, e
+    existiam apenas dois produtores de `harvest_query` no sistema — `harvest_sweep` (as
+    queries fixas do perfil) e `pursue_speculation` (as hipóteses). Nenhum vinha de
+    pergunta. O laço real era:
+
+        juiz recusa -> SEARCH_AGAIN -> ninguém busca -> corpus não muda ->
+        a guarda "corpus inalterado" dispara -> não consome rodada -> para sempre
+
+    MEDIDO na operação de 1-8/9: 15 rodadas, zero findings, 11 perguntas em impasse
+    permanente. A pergunta #1 pedia dieta cetogênica e o corpus tinha ZERO ocorrências de
+    `ketogenic` em 1042 claims — não porque a pergunta fosse má, mas porque nenhuma das 19
+    queries fixas menciona dieta e ninguém nunca perguntou ao PubMed.
+
+    Três decisões, cada uma com razão:
+
+    1. **Dedup pela LACUNA, não pela pergunta.** `gap:<foco>:<hash do missing>` — duas
+       perguntas com a mesma lacuna compartilham uma busca, e a mesma lacuna não vira
+       query nova a cada rodada. Sem isto, 11 perguntas × 3 rodadas = 33 buscas para umas
+       poucas lacunas distintas.
+
+    2. **Só pergunta de `origin='auto'`.** A query vai para um TERCEIRO (a API do NCBI), e
+       o `missing` é derivado da pergunta — que, se você a digitou em `lithium ask`, pode
+       carregar contexto clínico do caso. É a mesma decisão que `recon.queries_for` já
+       tomou, pela mesma razão, e ser inconsistente aqui seria pior que ser conservador.
+       Consequência aceita e declarada: pergunta SUA não recebe busca automática de
+       lacuna. Reverter isso é decisão de política, não conserto.
+
+    3. **`expected_directness = indirect`.** O prior honesto: a lacuna vem de uma pergunta
+       clínica, mas não se sabe que população o material novo vai ter. `direct` afirmaria
+       o que não se sabe; `extrapolated` (o que o `pursue` usa) é para especulação
+       mecanística, que não é o caso. A extração corrige lendo o texto.
+
+    LIMITE DECLARADO: a query é a prosa do `missing`, e depende do Automatic Term Mapping
+    do PubMed para virar busca útil. Não medi a precisão disso. Se vier ruído, o passo
+    seguinte é uma chamada de LLM convertendo lacuna em query — mais uma chamada por
+    lacuna, e por isso não foi feito antes de haver medição que a justifique.
+    """
+    row = ctx.store.conn.execute(
+        "SELECT origin, targets FROM questions WHERE id = ?", (question_id,)
+    ).fetchone()
+    if row is None or row["origin"] != "auto":
+        log.debug("lacuna da pergunta #%s não vira busca: origem %s",
+                  question_id, row["origin"] if row else "?")
+        return
+
+    query = " ".join(missing.split())[:GAP_QUERY_MAX_CHARS]
+    if not query:
+        return
+    focus_id = _focus_id(ctx.store)
+    task_id = ctx.queue.enqueue(
+        "harvest_query",
+        {
+            "query": query,
+            "expected_directness": Directness.INDIRECT.value,
+            "label": f"gap:{question_id}",
+            "limit": GAP_LIMIT,
+            "focus_id": focus_id,
+        },
+        priority=0.6,
+        dedup_key=f"gap:{focus_id}:{_stable_key(query)}",
+        origin="scheduled",
+    )
+    if task_id is not None:
+        log.info("lacuna da pergunta #%s virou busca: %s", question_id, query[:70])
 
 
 async def notify_tick(payload: dict[str, Any], ctx: Context) -> None:
